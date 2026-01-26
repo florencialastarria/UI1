@@ -87,6 +87,7 @@ cat("Variables en el dataset:\n")
 names(df)
 ```
 
+<<<<<<< HEAD
 ```{r convertir variables}
 # Convertir variables a factores ordenados y no ordenados
 df <- df %>%
@@ -166,7 +167,7 @@ diseno <- df %>%
     ids = cod_upm,           # Variable de conglomerado/UPM
     strata = estrato,    # Variable de estrato
     weights = fexp, # Variable de ponderador
-    nest = TRUE          # Permite PSUs con mismo ID en diferentes estratos
+     nest = TRUE          # Permite PSUs con mismo ID en diferentes estratos
   )
 
 cat("Diseño muestral configurado correctamente\n")
@@ -237,7 +238,6 @@ vars_categoricas <- c(vars_categoricas_nom, vars_categoricas_ord)
 
 cat("\nTotal de variables categóricas:", length(vars_categoricas), "\n")
 ```
-
 ### Análisis de valores perdidos
 
 ```{r valores-perdidos}
@@ -256,7 +256,6 @@ gg_miss_var(df, show_pct = TRUE) +
        x = "Número de valores perdidos") +
   theme_minimal()
 ```
-
 ### Estadísticos descriptivos con diseño muestral
 
 #### Variables numéricas
@@ -371,6 +370,8 @@ if(length(vars_categoricas_ord) > 0) {
   invisible(lapply(vars_categoricas_ord, crear_tabla))
 }
 ```
+
+=======
 
 ## Análisis bivariado
 
