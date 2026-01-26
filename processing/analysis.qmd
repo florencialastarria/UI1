@@ -1,33 +1,31 @@
 ---
 title: "analysis"
 format: html
+bibliography: input/bib/referencias.bib
+citation-style: gaceta-sanitaria.csl
 editor: visual
+
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+# Cargar librerías
 
 ```{r}
-1 + 1
+library(arrow)
+library(here)
+library(tidyverse)
+library(dplyr)
+library(survey)
+library(srvyr)
+library(ggplot2)
+library(naniar)
 ```
 
-You can add options to executable code like this
-
+# Cargar dataframe
 ```{r}
-#| echo: false
-2 * 2
+ruta_parquet <- here("input", "data", "proc", "ENDIDE2022_i.parquet")
+df <- read_parquet(ruta_parquet)
+print(paste("archivo leído de", ruta_parquet))
+print(paste("Filas", nrow(df)))
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
-
-```{r}
-asdad
-dada
-dasdad
-
-```
+# Referencias
