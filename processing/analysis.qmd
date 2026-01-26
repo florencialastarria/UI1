@@ -1,26 +1,29 @@
 ---
-title: "analysis"
+title: "Análisis encuesta poblacional ENDIDE 2022"
+author: Florencia Lastarria
 format: html
-bibliography: input/bib/referencias.bib
+bibliography: ../input/bib/referencias.bib
 citation-style: gaceta-sanitaria.csl
 editor: visual
-
 ---
 
 # Cargar librerías
 
 ```{r}
-library(arrow)
-library(here)
-library(tidyverse)
-library(dplyr)
-library(survey)
-library(srvyr)
-library(ggplot2)
-library(naniar)
+library(arrow) # Para leer/escribir parquet
+library(here) # Para rutas relativas
+library(tidyverse) # to make it easy to install and load multiple 'tidyverse' packages in a single step
+library(dplyr) # Para manipulación
+library(survey) # for Summary Statistics of Survey Data
+library(srvyr) # adds dplyr like syntax to the survey package
+library(ggplot2) # for Data Visualisation
+library(naniar) # to make it easier to summarise and handle missing values
 ```
 
 # Cargar dataframe
+
+como dice[@CaldernLarraaga2019]
+
 ```{r}
 ruta_parquet <- here("input", "data", "proc", "ENDIDE2022_i.parquet")
 df <- read_parquet(ruta_parquet)

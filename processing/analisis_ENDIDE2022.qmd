@@ -1,0 +1,596 @@
+---
+title: "Análisis de Encuestas Poblacionales ENDIDE 2022"
+author: "Florencia Lastarria"
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenidos"
+    number-sections: true
+    code-fold: show
+    code-tools: true
+    theme: cosmo
+    self-contained: true
+bibliography: ../input/bib/referencias.bib
+csl: ../input/bib/gaceta-sanitaria.csl
+editor: visual
+---
+
+# Introducción
+
+Este documento presenta el análisis de datos de la encuesta ENDIDE 2022, siguiendo los principios de reproducibilidad y las recomendaciones del Laboratorio de Investigación Social Abierta (LISA) [@lisa_nodate_anlisis].
+
+El análisis se estructura siguiendo el enfoque IPO (Input-Processing-Output):
+
+-   **Input**: Carga y preparación de datos, configuración del diseño muestral
+-   **Processing**: Análisis descriptivo, bivariado y multivariado
+-   **Output**: Visualizaciones y tablas de resultados
+
+**Nota importante**: Este análisis incorpora el diseño muestral de la encuesta (ponderadores, estratos y conglomerados) para obtener estimaciones poblacionales válidas y errores estándar correctos.
+
+# Input: Preparación de datos
+
+## Cargar librerías
+
+```{r setup, message=FALSE, warning=FALSE}
+# Manejo de datos
+library(arrow)      # Para leer/escribir parquet
+library(here)       # Para rutas relativas
+library(tidyverse)  # Colección de paquetes para ciencia de datos
+library(dplyr)      # Manipulación de datos
+
+# Análisis de encuestas
+library(survey)     # Análisis de datos de encuesta
+library(srvyr)      # Sintaxis dplyr para survey
+
+# Visualización
+library(ggplot2)    # Visualización de datos
+library(knitr)      # Tablas
+library(htmltools)  # Para renderizar tablas en loops
+library(kableExtra) # Tablas mejoradas
+
+# Utilidades
+library(naniar)     # Manejo de valores perdidos
+library(summarytools) # Resúmenes estadísticos 
+
+# Configuración de opciones
+options(scipen = 999) # Desactivar notación científica
+options(survey.lonely.psu = "adjust") # Manejo de PSUs solitarias
+```
+
+## Cargar datos
+
+```{r cargar-datos}
+# Ruta al archivo parquet
+ruta_parquet <- here("input", "data", "proc", "ENDIDE2022_i.parquet")
+
+# Leer datos
+df <- read_parquet(ruta_parquet)
+
+# Información básica
+cat("Archivo leído desde:", ruta_parquet, "\n")
+cat("Número de observaciones:", nrow(df), "\n")
+cat("Número de variables:", ncol(df), "\n")
+```
+
+## Exploración inicial de la estructura
+
+```{r exploracion-inicial}
+# Estructura de los datos
+glimpse(df)
+```
+
+```{r nombres-variables}
+# Listar todas las variables
+cat("Variables en el dataset:\n")
+names(df)
+```
+
+```{r convertir variables}
+# Convertir variables a factores ordenados y no ordenados
+df <- df %>%
+  mutate(
+    # Variables nominales (sin orden) - usar factor()
+    sexo = factor(sexo, 
+                  levels = c(1, 2),
+                  labels = c("Hombre", "Mujer")),
+    
+    zona = factor(zona,
+                  levels = c(1, 2),
+                  labels = c("Urbano", "Rural")),
+    
+    # Variables ordinales - usar ordered()
+    
+    multi2 = ordered(multi2,
+                    levels = c(0, 1),
+                    labels = c("No", "Sí")),
+    
+    multi3 = ordered(multi3,
+                    levels = c(0, 1),
+                    labels = c("No", "Sí")),
+    
+    edad_categorizada = ordered(edad_categorizada,
+                                levels = c(1, 2),
+                                labels = c("60 a 74 años", "75 años o más")),
+    
+    educc = ordered(educc,
+                    levels = c(0, 1, 2, 3),
+                    labels = c("Sin escolaridad", "Básica", "Media", "Superior")),
+    
+    Fragilidad = ordered(Fragilidad,
+                        levels = c(0, 1, 2),
+                        labels = c("Sin", "Pre-frágil", "Frágil")),
+    
+    disc_adulto = ordered(disc_adulto,
+                         levels = c(0, 1),
+                         labels = c("Sin situación", "En situación")),
+    
+    disc_grado_adulto = ordered(disc_grado_adulto,
+                                levels = c(0, 1, 2),
+                                labels = c("Sin", "Leve/Mod", "Severa")),
+    
+    cap_nivel_adulto = ordered(cap_nivel_adulto,
+                               levels = c(0, 1, 2, 3),
+                               labels = c("Ninguna", "Leve", "Moderada", "Severa")),
+    
+    des_nivel_adulto = ordered(des_nivel_adulto,
+                               levels = c(0, 1, 2, 3),
+                               labels = c("Ninguna", "Leve", "Moderada", "Severa")),
+    
+    depen_adulto = ordered(depen_adulto,
+                          levels = c(0, 1),
+                          labels = c("Sin situación", "En situación")),
+    
+    depen_grado_adulto = ordered(depen_grado_adulto,
+                                 levels = c(0, 1, 2, 3),
+                                 labels = c("Ninguna", "Leve", "Moderada", "Severa")),
+    
+    # Variables numéricas continuas - convertir a integer
+    cap_puntaje_adulto = as.integer(cap_puntaje_adulto),
+    des_puntaje_adulto = as.integer(des_puntaje_adulto)
+  )
+```
+
+```{r verificar-transformaciones}
+
+# Verificar las transformaciones
+cat("Tipos de variables después de la transformación:\n")
+str(df)
+```
+
+```{r diseno-muestral}
+
+diseno <- df %>%
+  as_survey_design(
+    ids = cod_upm,           # Variable de conglomerado/UPM
+    strata = estrato,    # Variable de estrato
+    weights = fexp, # Variable de ponderador
+    nest = TRUE          # Permite PSUs con mismo ID en diferentes estratos
+  )
+
+cat("Diseño muestral configurado correctamente\n")
+cat("Tipo de objeto:", class(diseno), "\n")
+```
+
+## Verificación del diseño muestral
+
+```{r verificar-diseno}
+# Resumen del diseño
+print(diseno)
+
+# Verificar distribución de ponderadores
+summary(weights(diseno))
+
+# Verificar número de estratos y PSUs
+cat("\nNúmero de estratos:", length(unique(diseno$variables$estrato)), "\n")
+cat("Número de PSUs:", length(unique(diseno$variables$cod_upm)), "\n")
+```
+
+```{r plot-ponderadores, fig.width=10, fig.height=6}
+# Visualizar distribución de ponderadores
+df %>%
+  ggplot(aes(x = fexp)) +  # ← Aquí graficas el ponderador mismo
+  geom_histogram(fill = "steelblue", color = "white", bins = 50) +
+  labs(title = "Distribución de ponderadores muestrales",
+       x = "Ponderador (fexp)",
+       y = "Frecuencia") +
+  theme_minimal()
+```
+
+# Processing: Análisis de datos
+
+## Análisis descriptivo univariado
+
+### Identificación de variables
+
+```{r identificar-variables}
+
+# Identificar SOLO variables numéricas continuas (excluyendo factores y diseño)
+vars_numericas <- df %>% 
+  select(where(is.numeric)) %>%           # Incluye dbl e integer
+  select(-c(fexp, estrato, cod_upm)) %>%  # Excluir vars de diseño
+  names()
+
+cat("Variables numéricas identificadas:", length(vars_numericas), "\n")
+print(vars_numericas)
+
+# Identificar variables categóricas ORDINALES (primero)
+vars_categoricas_ord <- df %>% 
+  select(where(is.ordered)) %>%  # Solo factores ordenados
+  names()
+
+cat("\nVariables categóricas ordinales:", length(vars_categoricas_ord), "\n")
+print(vars_categoricas_ord)
+
+# Identificar variables categóricas NOMINALES (excluyendo las ordinales)
+vars_categoricas_nom <- df %>% 
+  select(where(is.factor)) %>%      # Todos los factores
+  select(-all_of(vars_categoricas_ord)) %>%  # EXCLUIR las ordinales
+  names()
+
+cat("\nVariables categóricas nominales:", length(vars_categoricas_nom), "\n")
+print(vars_categoricas_nom)
+
+# Todas las categóricas juntas (si las necesitas)
+vars_categoricas <- c(vars_categoricas_nom, vars_categoricas_ord)
+
+cat("\nTotal de variables categóricas:", length(vars_categoricas), "\n")
+```
+
+### Análisis de valores perdidos
+
+```{r valores-perdidos}
+# Análisis de valores perdidos (sobre datos sin ponderar)
+miss_var_summary(df) %>%
+  head(20) %>%
+  kable(caption = "Variables con valores perdidos (top 20)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+```{r plot-valores-perdidos, fig.width=10, fig.height=6}
+# Visualización de valores perdidos
+gg_miss_var(df, show_pct = TRUE) +
+  labs(title = "Porcentaje de valores perdidos por variable",
+       y = "Variables",
+       x = "Número de valores perdidos") +
+  theme_minimal()
+```
+
+### Estadísticos descriptivos con diseño muestral
+
+#### Variables numéricas
+
+```{r descriptivos-numericos-survey}
+# Estadísticos descriptivos considerando el diseño muestral
+if(length(vars_numericas) > 0) {
+  
+  # Calcular cada estadístico por separado
+  lista_descriptivos <- list()
+  
+  for(var in vars_numericas) {
+    lista_descriptivos[[var]] <- diseno %>%
+      summarise(
+        Variable = var,
+        Media = survey_mean(.data[[var]], na.rm = TRUE),
+        Total = survey_total(.data[[var]], na.rm = TRUE)
+      )
+  }
+  
+  # Combinar en una tabla
+  descriptivos_num <- bind_rows(lista_descriptivos) %>%
+    select(Variable, Media, Media_se, Total, Total_se) # Aparece el error estándar de la media y del total
+  
+  descriptivos_num %>%
+    kable(caption = "Estadísticos descriptivos de variables numéricas (con diseño muestral)",
+          digits = 2,
+          col.names = c("Variable", "Media", "EE", "Total", "EE")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+```{r cuantiles-numericos}
+# Cuantiles y percentiles de todas las variables numéricas
+if(length(vars_numericas) > 0) {
+  
+  lista_cuantiles <- list()
+  
+  for(var in vars_numericas) {
+    cuantiles <- svyquantile(as.formula(paste0("~", var)), 
+                             diseno, 
+                             c(0.25, 0.50, 0.75),
+                             na.rm = TRUE)
+    
+    lista_cuantiles[[var]] <- data.frame(
+      Variable = var,
+      P25 = as.numeric(cuantiles[[var]][1]),
+      Mediana = as.numeric(cuantiles[[var]][2]),
+      P75 = as.numeric(cuantiles[[var]][3])
+    )
+  }
+  
+  tabla_cuantiles_todas <- bind_rows(lista_cuantiles)
+  
+  tabla_cuantiles_todas %>%
+    kable(caption = "Cuantiles de variables numéricas (con diseño muestral)",
+          digits = 2) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+#### Variables categóricas
+
+##### Variables categóricas nominales
+
+```{r descriptivos-categoricos-nom, results='asis'}
+if(length(vars_categoricas_nom) > 0) {
+  
+  crear_tabla <- function(var) {
+    
+    tabla_freq <- diseno %>%
+      group_by(!!sym(var)) %>%  # ← CAMBIO AQUÍ
+      summarise(n = survey_total(na.rm = TRUE),
+                prop = survey_mean())
+    
+    print(kable(tabla_freq, 
+                caption = paste("Distribución de", var),
+                digits = 3,
+                col.names = c(var, "N", "EE", "Proporción", "EE")) %>%
+          kable_styling(bootstrap_options = c("striped", "hover")))
+    
+    cat("\n\n")
+  }
+  
+  invisible(lapply(vars_categoricas_nom, crear_tabla))
+}
+```
+
+##### Variables categóricas ordinales
+
+```{r descriptivos-categoricos-ord-survey, results='asis'}
+if(length(vars_categoricas_ord) > 0) {
+  
+  # Función para crear cada tabla
+  crear_tabla <- function(var) {
+    
+    tabla_freq <- diseno %>%
+      group_by(.data[[var]]) %>%
+      summarise(n = survey_total(na.rm = TRUE),
+                prop = survey_mean())
+    
+    print(kable(tabla_freq, 
+                caption = paste("Distribución de", var),
+                digits = 3,
+                col.names = c(var, "N", "EE", "Proporción", "EE")) %>%
+          kable_styling(bootstrap_options = c("striped", "hover")))
+    
+    cat("\n\n")
+  }
+  
+  # Aplicar a todas las variables
+  invisible(lapply(vars_categoricas_ord, crear_tabla))
+}
+```
+
+## Análisis bivariado
+
+### Asociación entre variables categóricas
+
+```{r tabla-contingencia-survey}
+# Tabla de contingencia con diseño muestral
+# Ajusta las variables según tu análisis
+
+# Ejemplo:
+# if(length(vars_categoricas) >= 2) {
+#   tabla_biv <- diseno %>%
+#     group_by(variable_cat1, variable_cat2) %>%
+#     summarise(n = survey_total(na.rm = TRUE),
+#               prop = survey_mean(na.rm = TRUE))
+#   
+#   print(kable(tabla_biv, digits = 3) %>%
+#           kable_styling(bootstrap_options = c("striped", "hover")))
+#   
+#   # Test de independencia
+#   test_indep <- svychisq(~variable_cat1 + variable_cat2, diseno)
+#   print(test_indep)
+# }
+```
+
+### Comparación de medias entre grupos
+
+```{r comparacion-medias-survey}
+# Comparación de medias con diseño muestral
+# Ejemplo: media de variable numérica según grupos
+
+# if(length(vars_numericas) > 0 & length(vars_categoricas) > 0) {
+#   comp_medias <- diseno %>%
+#     group_by(variable_categorica) %>%
+#     summarise(media = survey_mean(variable_numerica, na.rm = TRUE))
+#   
+#   print(kable(comp_medias, digits = 2) %>%
+#           kable_styling(bootstrap_options = c("striped", "hover")))
+#   
+#   # Test de diferencia de medias
+#   test_medias <- svyttest(variable_numerica ~ variable_categorica, diseno)
+#   print(test_medias)
+# }
+```
+
+### Correlaciones
+
+```{r correlaciones-survey}
+# Correlaciones considerando el diseño muestral
+# Ejemplo con primeras variables numéricas
+
+# if(length(vars_numericas) >= 2) {
+#   # Para correlación ponderada, usar svyvar y svycov
+#   var1 <- vars_numericas[1]
+#   var2 <- vars_numericas[2]
+#   
+#   correlacion <- svycor(as.formula(paste0("~", var1, "+", var2)), 
+#                         diseno, 
+#                         na.rm = TRUE)
+#   cat("Correlación entre", var1, "y", var2, ":\n")
+#   print(correlacion)
+# }
+```
+
+## Análisis multivariado
+
+### Regresión lineal con diseño muestral
+
+```{r regresion-lineal-survey}
+# Modelo de regresión lineal considerando diseño muestral
+# Ajusta según tus variables de interés
+
+# modelo_lm_survey <- svyglm(variable_dependiente ~ var1 + var2 + var3, 
+#                            design = diseno,
+#                            family = gaussian())
+# 
+# # Resumen del modelo
+# summary(modelo_lm_survey)
+# 
+# # Intervalos de confianza
+# confint(modelo_lm_survey)
+# 
+# # Tabla de coeficientes
+# coef_tabla <- broom::tidy(modelo_lm_survey, conf.int = TRUE)
+# kable(coef_tabla, digits = 3) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Regresión logística con diseño muestral
+
+```{r regresion-logistica-survey}
+# Modelo de regresión logística considerando diseño muestral
+# Ajusta según tus variables de interés
+
+# modelo_glm_survey <- svyglm(variable_binaria ~ var1 + var2 + var3, 
+#                             design = diseno,
+#                             family = quasibinomial())
+# 
+# # Resumen del modelo
+# summary(modelo_glm_survey)
+# 
+# # Odds ratios
+# exp(coef(modelo_glm_survey))
+# exp(confint(modelo_glm_survey))
+# 
+# # Tabla de OR
+# or_tabla <- broom::tidy(modelo_glm_survey, 
+#                         exponentiate = TRUE,
+#                         conf.int = TRUE)
+# kable(or_tabla, digits = 3) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Pruebas de bondad de ajuste
+
+```{r bondad-ajuste}
+# Test de Wald para significancia global del modelo
+# regTermTest(modelo_lm_survey, ~var1 + var2)
+
+# AIC para comparación de modelos
+# AIC(modelo_lm_survey)
+```
+
+# Output: Resultados y visualizaciones
+
+## Gráficos descriptivos
+
+**Nota**: Los gráficos usan datos ponderados cuando es posible.
+
+```{r graficos-univariados, fig.width=10, fig.height=6}
+# Histograma ponderado de variable numérica
+if(length(vars_numericas) > 0) {
+  var_plot <- vars_numericas[1]
+  
+  df %>%
+    ggplot(aes(x = .data[[var_plot]], weight = fexp)) +
+    geom_histogram(fill = "steelblue", color = "white", bins = 30) +
+    labs(title = paste("Distribución de", var_plot, "(ponderado)"),
+         x = var_plot,
+         y = "Frecuencia ponderada") +
+    theme_minimal()
+}
+```
+
+```{r graficos-categoricos, fig.width=10, fig.height=6}
+# Gráfico de barras ponderado
+if(length(vars_categoricas) > 0) {
+  var_plot <- vars_categoricas[1]
+  
+  tabla_plot <- diseno %>%
+    group_by(.data[[var_plot]]) %>%
+    summarise(prop = survey_mean(na.rm = TRUE)) %>%
+    filter(!is.na(.data[[var_plot]]))
+  
+  ggplot(tabla_plot, aes(x = reorder(.data[[var_plot]], prop), 
+                         y = prop)) +
+    geom_col(fill = "coral") +
+    geom_errorbar(aes(ymin = prop - prop_se, 
+                      ymax = prop + prop_se),
+                  width = 0.2) +
+    coord_flip() +
+    labs(title = paste("Distribución de", var_plot, "(con IC 95%)"),
+         x = var_plot,
+         y = "Proporción") +
+    theme_minimal()
+}
+```
+
+## Gráficos bivariados
+
+```{r graficos-bivariados, fig.width=10, fig.height=6}
+# Ejemplo: boxplot o gráfico de medias por grupo
+# Ajusta según tus variables
+
+# if(length(vars_numericas) > 0 & length(vars_categoricas) > 0) {
+#   medias_grupo <- diseno %>%
+#     group_by(variable_categorica) %>%
+#     summarise(media = survey_mean(variable_numerica, na.rm = TRUE))
+#   
+#   ggplot(medias_grupo, aes(x = variable_categorica, y = media)) +
+#     geom_col(fill = "lightblue") +
+#     geom_errorbar(aes(ymin = media - media_se,
+#                       ymax = media + media_se),
+#                   width = 0.2) +
+#     labs(title = "Media por grupo (con IC 95%)",
+#          x = "Grupo",
+#          y = "Media") +
+#     theme_minimal()
+# }
+```
+
+## Tablas de resultados finales
+
+```{r tabla-resumen-final}
+# Tabla resumen de principales hallazgos
+# Personaliza según tus resultados
+```
+
+# Conclusiones
+
+Resumen de los principales hallazgos del análisis, considerando que todas las estimaciones incorporan el diseño muestral de ENDIDE 2022.
+
+# Referencias
+
+::: {#refs}
+:::
+
+# Información de sesión
+
+```{r info-sesion}
+sessionInfo()
+```
+
+# Anexo: Verificación del diseño muestral
+
+```{r anexo-verificacion}
+# Información técnica del diseño
+cat("Resumen del diseño muestral:\n")
+cat("- Estratos:", length(unique(diseno$variables$estrato)), "\n")
+cat("- PSUs:", length(unique(diseno$variables$upm)), "\n")
+cat("- Observaciones:", nrow(diseno$variables), "\n")
+cat("- Suma de ponderadores:", sum(weights(diseno)), "\n")
+```

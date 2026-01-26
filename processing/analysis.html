@@ -55,7 +55,26 @@ div.sourceCode
 @media screen {
 pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
 }
-</style>
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+}
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
 
 
 <script src="analysis_files/libs/clipboard/clipboard.min.js"></script>
@@ -166,6 +185,7 @@ The following object is masked from 'package:stats':
 </section>
 <section id="cargar-dataframe" class="level1">
 <h1>Cargar dataframe</h1>
+<p>como dice<span class="citation" data-cites="CaldernLarraaga2019"><sup><a href="#ref-CaldernLarraaga2019" role="doc-biblioref">1</a></sup></span></p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>ruta_parquet <span class="ot">&lt;-</span> <span class="fu">here</span>(<span class="st">"input"</span>, <span class="st">"data"</span>, <span class="st">"proc"</span>, <span class="st">"ENDIDE2022_i.parquet"</span>)</span>
 <span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>df <span class="ot">&lt;-</span> <span class="fu">read_parquet</span>(ruta_parquet)</span>
@@ -179,11 +199,16 @@ The following object is masked from 'package:stats':
 </div>
 </div>
 </section>
-<section id="section" class="level1">
-<h1></h1>
+<section id="referencias" class="level1 unnumbered">
+
+
 </section>
 
-</main>
+<div id="quarto-appendix" class="default"><section class="quarto-appendix-contents" role="doc-bibliography" id="quarto-bibliography"><h2 class="anchored quarto-appendix-heading">Referencias</h2><div id="refs" class="references csl-bib-body" role="list">
+<div id="ref-CaldernLarraaga2019" class="csl-entry" role="listitem">
+<div class="csl-left-margin">1. </div><div class="csl-right-inline">Calderón‐Larrañaga A, Vetrano DL, Ferrucci L, et al. Multimorbidity and functional impairment–bidirectional interplay, synergistic effects and common pathways. Journal of Internal Medicine [Internet]. March 2019;285:255–71. Available at: <a href="https://onlinelibrary.wiley.com/doi/10.1111/joim.12843">https://onlinelibrary.wiley.com/doi/10.1111/joim.12843</a></div>
+</div>
+</div></section></div></main>
 <!-- /main column -->
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
