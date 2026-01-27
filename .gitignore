@@ -1,4 +1,44 @@
-.Rproj.user
+# ========== DATOS - NUNCA SUBIR ==========
+
+# Archivos de datos (todos los formatos)
+*.parquet
+*.feather
+*.rds
+*.RData
+*.Ruserdata
+*.csv
+*.xlsx
+*.xls
+*.sav
+*.dta
+*.sas7bdat
+*.dbf
+
+# Carpetas completas de datos
+input/data/**/*
+!input/data/README.md  # Excepto README
+
+# Datos crudos y procesados
+**/data/raw/**
+**/data/processed/**
+
+# Outputs grandes
+output/**/*
+!output/README.md
+
+# ========== R - ARCHIVOS TEMPORALES ==========
 .Rhistory
-.RData
-.Ruserdata
+.Rproj.user/
+.Rprofile
+.Renviron
+*.Rproj
+
+# ========== SISTEMA ==========
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# ========== QUARTO/RMARKDOWN ==========
+*_files/
+*_cache/
