@@ -376,7 +376,7 @@ if(length(vars_categoricas_ord) > 0) {
 
 ### Asociación entre variables categóricas
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-zona}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs Zona
@@ -397,7 +397,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Zona):\n")
 print(test_sexo_zona)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-edadcat}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs Edad categorizada
@@ -417,7 +417,7 @@ test_sexo_edad_cat <- svychisq(~sexo + edad_categorizada, diseno)
 cat("\n\nTest Chi-cuadrado (Sexo vs Edad categorizada):\n")
 print(test_sexo_edad_cat)
 ```
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-edadcat}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs Edad categorizada
@@ -438,7 +438,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Edad categorizada):\n")
 print(test_zona_edad_cat)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-frag}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs Fragilidad
@@ -459,7 +459,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Fragilidad):\n")
 print(test_sexo_frag)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-frag}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs Fragilidad
@@ -480,7 +480,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Fragilidad):\n")
 print(test_zona_frag)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-frag}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs Fragilidad
@@ -503,7 +503,7 @@ print(test_edadcat_frag)
 
 
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-educ}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs nivel educacional
@@ -523,7 +523,7 @@ test_sexo_educ <- svychisq(~sexo + educc, diseno)
 cat("\n\nTest Chi-cuadrado (Sexo vs Nivel educacional):\n")
 print(test_sexo_educ)
 ```
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-educ}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs nivel educacional
@@ -544,7 +544,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Nivel educacional):\n")
 print(test_zona_educ)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-educ}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs nivel educacional
@@ -567,7 +567,7 @@ print(test_edad_cat_educ)
 
 
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-multi2}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs multimorbilidad 2 o más
@@ -588,7 +588,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Multimorbilidad 2 o más):\n")
 print(test_sexo_multi2)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-multi2}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs multimorbilidad 2 o más
@@ -609,7 +609,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Multimorbilidad 2 o más):\n")
 print(test_zona_multi2)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-multi2}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs multimorbilidad 2 o más
@@ -630,7 +630,7 @@ cat("\n\nTest Chi-cuadrado (Edad categorizada vs Multimorbilidad 2 o más):\n")
 print(test_edad_cat_multi2)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-multi3}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs multimorbilidad 3 o más
@@ -651,7 +651,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Multimorbilidad 3 o más):\n")
 print(test_sexo_multi3)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-multi3}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs multimorbilidad 3 o más
@@ -672,7 +672,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Multimorbilidad 3 o más):\n")
 print(test_zona_multi3)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-multi3}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs multimorbilidad 3 o más
@@ -694,7 +694,7 @@ print(test_edad_cat_multi3)
 ```
 
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-disc}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs discapacidad en adultos
@@ -715,7 +715,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Discapacidad en adultos):\n")
 print(test_sexo_disc_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-disc}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs discapacidad en adultos
@@ -736,7 +736,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Discapacidad en adultos):\n")
 print(test_zona_disc_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-disc}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs discapacidad en adultos
@@ -757,7 +757,7 @@ cat("\n\nTest Chi-cuadrado (Edad categorizada vs Discapacidad en adultos):\n")
 print(test_edad_cat_disc_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-disc-grado}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs discapacidad en adultos desagregada
@@ -778,7 +778,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Discapacidad en adultos desagregada):\n")
 print(test_sexo_disc_grado_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-disc-grado}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs discapacidad en adultos desagregada
@@ -799,7 +799,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Discapacidad en adultos desagregada):\n")
 print(test_zona_disc_grado_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-disc-grado}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs discapacidad en adultos desagregada
@@ -820,7 +820,7 @@ cat("\n\nTest Chi-cuadrado (Edad categorizada vs Discapacidad en adultos desagre
 print(test_edad_cat_disc_grado_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-depen}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs dependencia en adultos
@@ -841,7 +841,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Dependencia en adultos):\n")
 print(test_sexo_depen_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-depen}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs dependencia en adultos
@@ -862,7 +862,7 @@ cat("\n\nTest Chi-cuadrado (Zona vs Dependencia en adultos):\n")
 print(test_zona_depen_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-depen}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs dependencia en adultos
@@ -883,7 +883,7 @@ cat("\n\nTest Chi-cuadrado (Edad categorizada vs Dependencia en adultos):\n")
 print(test_edad_cat_depen_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-sexo-depen-grado}
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs dependencia en adultos desagregado
@@ -904,7 +904,7 @@ cat("\n\nTest Chi-cuadrado (Sexo vs Dependencia en adultos):\n")
 print(test_sexo_depen_grado_adulto)
 ```
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-zona-depen-grado}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs dependencia en adultos desagregado
@@ -926,7 +926,7 @@ print(test_zona_depen_grado_adulto)
 ```
 
 
-```{r tabla-contingencia-survey}
+```{r tabla-contingencia-edadcat-depen-grado}
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs dependencia en adultos desagregado
@@ -950,7 +950,7 @@ print(test_edad_cat_depen_grado_adulto)
 
 ### Comparación de medias entre grupos
 
-```{r comparacion-medias-survey}
+```{r comparacion-medias-edad-sexo}
 # Comparación de medias con diseño muestral
 # Media de edad según sexo
 comp_edad_sexo <- diseno %>%
@@ -969,7 +969,7 @@ cat("\n\nTest t (Edad por Sexo):\n")
 print(test_edad_sexo)
 ```
 
-```{r comparacion-medias-survey}
+```{r comparacion-medias-edad-zona}
 # Comparación de medias con diseño muestral
 # Media de edad según zona
 comp_edad_zona <- diseno %>%
@@ -986,26 +986,6 @@ kable(comp_edad_zona,
 test_edad_zona <- svyttest(edad ~ zona, diseno)
 cat("\n\nTest t (Edad por Zona):\n")
 print(test_edad_zona)
-```
-
-
-### Correlaciones
-
-```{r correlaciones-survey}
-# Correlaciones considerando el diseño muestral
-# Ejemplo con primeras variables numéricas
-
-# if(length(vars_numericas) >= 2) {
-#   # Para correlación ponderada, usar svyvar y svycov
-#   var1 <- vars_numericas[1]
-#   var2 <- vars_numericas[2]
-#   
-#   correlacion <- svycor(as.formula(paste0("~", var1, "+", var2)), 
-#                         diseno, 
-#                         na.rm = TRUE)
-#   cat("Correlación entre", var1, "y", var2, ":\n")
-#   print(correlacion)
-# }
 ```
 
 ## Análisis multivariado
