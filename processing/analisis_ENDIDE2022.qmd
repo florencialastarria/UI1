@@ -1193,29 +1193,6 @@ kable(or_tabla_multi3,
   kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
-
-# Modelo de regresión logística considerando diseño muestral
-# Ajusta según tus variables de interés
-
-# modelo_glm_survey <- svyglm(variable_binaria ~ var1 + var2 + var3, 
-#                             design = diseno,
-#                             family = quasibinomial())
-# 
-# # Resumen del modelo
-# summary(modelo_glm_survey)
-# 
-# # Odds ratios
-# exp(coef(modelo_glm_survey))
-# exp(confint(modelo_glm_survey))
-# 
-# # Tabla de OR
-# or_tabla <- broom::tidy(modelo_glm_survey, 
-#                         exponentiate = TRUE,
-#                         conf.int = TRUE)
-# kable(or_tabla, digits = 3) %>%
-#   kable_styling(bootstrap_options = c("striped", "hover"))
-```
-
 ### Pruebas de bondad de ajuste
 
 ```{r bondad-ajuste}
