@@ -3,7 +3,7 @@ title: "Análisis de Encuestas Poblacionales ENDIDE 2022"
 author: "Florencia Lastarria"
 date: "`r Sys.Date()`"
 format: 
-  html: 
+  html:
     toc: true
     toc-depth: 3
     toc-title: "Contenidos"
@@ -49,6 +49,9 @@ library(ggplot2)    # Visualización de datos
 library(knitr)      # Tablas
 library(htmltools)  # Para renderizar tablas en loops
 library(kableExtra) # Tablas mejoradas
+library(sjPlot) # Para tablas de regresión bonitas
+library(webshot2) # Para guardar tablas como imágenes
+library(scales)   # Formateo de números en gráficos
 
 # Utilidades
 library(naniar)     # Manejo de valores perdidos
@@ -56,22 +59,35 @@ library(summarytools) # Resúmenes estadísticos
 
 # Configuración de opciones
 options(scipen = 999) # Desactivar notación científica
-options(survey.lonely.psu = "adjust") # Manejo de PSUs solitarias
 ```
 
 ## Cargar datos
 
 ```{r cargar-datos}
-# Ruta al archivo parquet
-ruta_parquet <- here("input", "data", "proc", "ENDIDE2022_i.parquet")
+# 1. Configuración para evitar errores con estratos de una sola UPM
+options(survey.lonely.psu = "adjust")
 
-# Leer datos
+# 2. Cargar datos (BASE COMPLETA, sin filtrar edad aún)
+ruta_parquet <- here("input", "data", "proc", "ENDIDE2022_i.parquet")
 df <- read_parquet(ruta_parquet)
 
-# Información básica
-cat("Archivo leído desde:", ruta_parquet, "\n")
-cat("Número de observaciones:", nrow(df), "\n")
-cat("Número de variables:", ncol(df), "\n")
+# 3. Crear el Objeto de Diseño Maestro (Con toda la muestra)
+# Usamos as_survey_design de srvyr porque es más amigable
+diseno_master <- df %>%
+  as_survey_design(
+    ids = cod_upm,       # Conglomerados
+    strata = estrato,    # Estratos
+    weights = fexp,      # Factor de expansión
+    nest = TRUE          # Anidado
+  )
+
+# 4. Crear el Subconjunto para Análisis (Mayores de 60)
+# Este objeto 'diseno_mayores' es el que se usará de aquí en adelante
+diseno_mayores <- subset(diseno_master, edad >= 60)
+
+cat("Diseño creado correctamente.\n")
+cat("Población representada (Mayores 60):", sum(weights(diseno_mayores)), "\n")
+
 ```
 
 ## Exploración inicial de la estructura
@@ -88,44 +104,44 @@ names(df)
 ```
 ## Verificación del diseño muestral
 
-```{r diseno-muestral}
+```{r verificacion-diseno}
+# --- 3.1 Verificación del Diseño Muestral (Control de Calidad) ---
 
-diseno <- df %>%
-  as_survey_design(
-    ids = cod_upm,           # Variable de conglomerado/UPM
-    strata = estrato,    # Variable de estrato
-    weights = fexp, # Variable de ponderador
-     nest = TRUE          # Permite PSUs con mismo ID en diferentes estratos
-  )
+# 1. Resumen general del objeto
+print(diseno_mayores)
 
-cat("Diseño muestral configurado correctamente\n")
-cat("Tipo de objeto:", class(diseno), "\n")
+# 2. Conteo de observaciones (Muestra vs Población)
+n_real <- nrow(diseno_mayores) # Cuántas filas tiene la base
+n_expandido <- sum(weights(diseno_mayores)) # A cuánta gente representa
+
+cat("----------------------------------------------------\n")
+cat("VERIFICACIÓN DEL SUBSET (PERSONAS 60+ AÑOS)\n")
+cat("----------------------------------------------------\n")
+cat("Número de casos reales (n):", n_real, "\n") #Hay más de 9 mil encuestados mayores de 60 años. Es un tamaño muestral gigante para un estudio de este tipo. Dará intervalos de confianza muy precisos.
+# Opción para que no salga el aviso: usar espacio para miles
+cat("Población estimada (N):", format(n_expandido, big.mark=" "), "\n") #El dato 3.598.595 es extremadamente consistente con la demografía de Chile. Indica que el filtro subset(..., edad >= 60) funcionó correctamente y está representando a toda la población mayor del país.
+
+# 3. Revisión de Grados de Libertad (Crucial para tus modelos)
+# Esto responde a la advertencia anterior. Si es bajo (<50), ojo con los modelos.
+#Hay poder estadístico de sobra para hacer regresiones logísticas complejas, probar multi2 vs multi3, y ajustar por sexo/edad sin que el modelo se rompa.
+grados_libertad <- degf(diseno_mayores)
+cat("Grados de Libertad:", grados_libertad, "\n")
+
+# 4. Revisión de Estratos con una sola UPM (Lonely PSU)
+# Si configuraste options(survey.lonely.psu = "adjust"), esto es solo informativo.
+# Muestra cuántos estratos tienen solo 1 conglomerado tras el filtro.
+info_estratos <- diseno_mayores$strata
+conglomerados_por_estrato <- tapply(weights(diseno_mayores), info_estratos, length)
+n_lonely <- sum(conglomerados_por_estrato == 1)
+
+if(n_lonely > 0) {
+  cat("ADVERTENCIA: Hay", n_lonely, "estrato(s) con una sola UPM tras el filtro.\n")
+  cat("Como tienes 'survey.lonely.psu = adjust', R lo manejará, pero es bueno saberlo.\n")
+} else {
+  cat("Diseño robusto: Todos los estratos tienen múltiples UPMs.\n")
+}
 ```
-
-
-```{r verificar-diseno}
-# Resumen del diseño
-print(diseno)
-
-# Verificar distribución de ponderadores
-summary(weights(diseno))
-
-# Verificar número de estratos y PSUs
-cat("\nNúmero de estratos:", length(unique(diseno$variables$estrato)), "\n")
-cat("Número de PSUs:", length(unique(diseno$variables$cod_upm)), "\n")
-```
-
-```{r plot-ponderadores, fig.width=10, fig.height=6}
-# Visualizar distribución de ponderadores
-df %>%
-  ggplot(aes(x = fexp)) +  # ← Aquí graficas el ponderador mismo
-  geom_histogram(fill = "steelblue", color = "white", bins = 50) +
-  labs(title = "Distribución de ponderadores muestrales",
-       x = "Ponderador (fexp)",
-       y = "Frecuencia") +
-  theme_minimal()
-```
-
+    
 # Processing: Análisis de datos
 
 ## Análisis descriptivo univariado
@@ -165,24 +181,24 @@ vars_categoricas <- c(vars_categoricas_nom, vars_categoricas_ord)
 
 cat("\nTotal de variables categóricas:", length(vars_categoricas), "\n")
 ```
+
 ### Análisis de valores perdidos
 
 ```{r valores-perdidos}
-# Análisis de valores perdidos (sobre datos sin ponderar)
-miss_var_summary(df) %>%
-  head(20) %>%
-  kable(caption = "Variables con valores perdidos (top 20)") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"))
+# Contar NAs por columna relevante
+tabla_nas <- diseno_mayores$variables %>%
+  select(edad, sexo, zona, frag, disc_adulto, multi2, multi3, educ) %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  t() %>% # Transponer para ver mejor
+  as.data.frame()
+
+colnames(tabla_nas) <- "N_Perdidos"
+tabla_nas$Porcentaje_NA <- (tabla_nas$N_Perdidos / nrow(diseno_mayores)) * 100
+
+kable(tabla_nas, digits = 2, caption = "Conteo de Valores Perdidos (Submuestra 60+)") %>%
+  kable_styling(full_width = F)
 ```
 
-```{r plot-valores-perdidos, fig.width=10, fig.height=6}
-# Visualización de valores perdidos
-gg_miss_var(df, show_pct = TRUE) +
-  labs(title = "Porcentaje de valores perdidos por variable",
-       y = "Variables",
-       x = "Número de valores perdidos") +
-  theme_minimal()
-```
 ### Estadísticos descriptivos con diseño muestral
 
 #### Variables numéricas
@@ -195,7 +211,7 @@ if(length(vars_numericas) > 0) {
   lista_descriptivos <- list()
   
   for(var in vars_numericas) {
-    lista_descriptivos[[var]] <- diseno %>%
+    lista_descriptivos[[var]] <- diseno_mayores %>%
       summarise(
         Variable = var,
         Media = survey_mean(.data[[var]], na.rm = TRUE),
@@ -223,7 +239,7 @@ if(length(vars_numericas) > 0) {
   
   for(var in vars_numericas) {
     cuantiles <- svyquantile(as.formula(paste0("~", var)), 
-                             diseno, 
+                             diseno_mayores, 
                              c(0.25, 0.50, 0.75),
                              na.rm = TRUE)
     
@@ -244,58 +260,60 @@ if(length(vars_numericas) > 0) {
 }
 ```
 
+
 #### Variables categóricas
+
+```{r descriptivos-categoricos}
+# Función para generar tablas categóricas rápidas
+tabla_cat_survey <- function(diseno_mayores, variable, titulo) {
+  diseno_mayores %>%
+    group_by({{variable}}) %>%
+    summarise(
+      n = unweighted(n()),
+      prop = survey_mean(vartype = "ci", na.rm = TRUE),
+      pob = survey_total(na.rm = TRUE)
+    ) %>%
+    mutate(
+      Porcentaje = scales::percent(prop, accuracy = 0.1),
+      IC_95 = paste0("[", scales::percent(prop_low, accuracy = 0.1), "-", 
+                     scales::percent(prop_upp, accuracy = 0.1), "]"),
+      Poblacion = scales::number(pob, big.mark = ".", accuracy = 1)
+    ) %>%
+    
+    select({{variable}}, n, Poblacion, Porcentaje, IC_95) %>%
+    kable(caption = titulo) %>%
+    kable_styling(bootstrap_options = "striped", full_width = F)
+}
+```
+
+
+
 
 ##### Variables categóricas nominales
 
-```{r descriptivos-categoricos-nom, results='asis'}
-if(length(vars_categoricas_nom) > 0) {
-  
-  crear_tabla <- function(var) {
-    
-    tabla_freq <- diseno %>%
-      group_by(!!sym(var)) %>%  # ← CAMBIO AQUÍ
-      summarise(n = survey_total(na.rm = TRUE),
-                prop = survey_mean())
-    
-    print(kable(tabla_freq, 
-                caption = paste("Distribución de", var),
-                digits = 3,
-                col.names = c(var, "N", "EE", "Proporción", "EE")) %>%
-          kable_styling(bootstrap_options = c("striped", "hover")))
-    
-    cat("\n\n")
-  }
-  
-  invisible(lapply(vars_categoricas_nom, crear_tabla))
-}
+```{r descriptivos-categoricos-nominales}
+# 1. Sexo
+tabla_cat_survey(diseno_mayores, sexo, "Distribución por Sexo")
+
+# 2. Zona (Urbano/Rural) - Si la tienes en la base
+tabla_cat_survey(diseno_mayores, zona, "Distribución por Zona")
+
 ```
 
 ##### Variables categóricas ordinales
 
 ```{r descriptivos-categoricos-ord-survey, results='asis'}
-if(length(vars_categoricas_ord) > 0) {
-  
-  # Función para crear cada tabla
-  crear_tabla <- function(var) {
-    
-    tabla_freq <- diseno %>%
-      group_by(.data[[var]]) %>%
-      summarise(n = survey_total(na.rm = TRUE),
-                prop = survey_mean())
-    
-    print(kable(tabla_freq, 
-                caption = paste("Distribución de", var),
-                digits = 3,
-                col.names = c(var, "N", "EE", "Proporción", "EE")) %>%
-          kable_styling(bootstrap_options = c("striped", "hover")))
-    
-    cat("\n\n")
-  }
-  
-  # Aplicar a todas las variables
-  invisible(lapply(vars_categoricas_ord, crear_tabla))
-}
+# 1. Grado de Discapacidad (Variable Resultado Principal)
+tabla_cat_survey(diseno_mayores, disc_grado_adulto, "Prevalencia según Grado de Discapacidad")
+
+# 2. Nivel Educacional
+tabla_cat_survey(diseno_mayores, educ, "Distribución por Nivel Educacional")
+
+# 3. Multimorbilidad (Si decides tratar multi2 o el conteo como ordinal)
+tabla_cat_survey(diseno_mayores, multi2, "Multimorbilidad (corte 2 patologías)")
+
+# 4. Multimorbilidad (Si decides tratar multi3 o el conteo como ordinal)
+tabla_cat_survey(diseno_mayores, multi3, "Multimorbilidad (corte 3 patologías)")
 ```
 
 =======
@@ -308,7 +326,7 @@ if(length(vars_categoricas_ord) > 0) {
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs Zona
-tabla_sexo_zona <- diseno %>%
+tabla_sexo_zona <- diseno_mayores %>%
   group_by(sexo, zona) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -320,7 +338,7 @@ kable(tabla_sexo_zona,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_zona <- svychisq(~sexo + zona, diseno)
+test_sexo_zona <- svychisq(~sexo + zona, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Zona):\n")
 print(test_sexo_zona)
 ```
@@ -329,7 +347,7 @@ print(test_sexo_zona)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs Edad categorizada
-tabla_sexo_edad_cat <- diseno %>%
+tabla_sexo_edad_cat <- diseno_mayores %>%
   group_by(sexo, edad_cat) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -341,7 +359,7 @@ kable(tabla_sexo_edad_cat,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_edad_cat <- svychisq(~sexo + edad_cat, diseno)
+test_sexo_edad_cat <- svychisq(~sexo + edad_cat, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Edad categorizada):\n")
 print(test_sexo_edad_cat)
 ```
@@ -350,7 +368,7 @@ print(test_sexo_edad_cat)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs Edad categorizada
-tabla_zona_edad_cat <- diseno %>%
+tabla_zona_edad_cat <- diseno_mayores %>%
   group_by(zona, edad_cat) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -362,7 +380,7 @@ kable(tabla_zona_edad_cat,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_edad_cat <- svychisq(~zona + edad_cat, diseno)
+test_zona_edad_cat <- svychisq(~zona + edad_cat, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Edad categorizada):\n")
 print(test_zona_edad_cat)
 ```
@@ -371,7 +389,7 @@ print(test_zona_edad_cat)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs Fragilidad
-tabla_sexo_frag <- diseno %>%
+tabla_sexo_frag <- diseno_mayores %>%
   group_by(sexo, frag) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -383,7 +401,7 @@ kable(tabla_sexo_frag,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_frag <- svychisq(~sexo + frag, diseno)
+test_sexo_frag <- svychisq(~sexo + frag, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Fragilidad):\n")
 print(test_sexo_frag)
 ```
@@ -392,7 +410,7 @@ print(test_sexo_frag)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs Fragilidad
-tabla_zona_frag <- diseno %>%
+tabla_zona_frag <- diseno_mayores %>%
   group_by(zona, frag) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -404,7 +422,7 @@ kable(tabla_zona_frag,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_frag <- svychisq(~zona + frag, diseno)
+test_zona_frag <- svychisq(~zona + frag, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Fragilidad):\n")
 print(test_zona_frag)
 ```
@@ -413,7 +431,7 @@ print(test_zona_frag)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs Fragilidad
-tabla_edadcat_frag <- diseno %>%
+tabla_edadcat_frag <- diseno_mayores %>%
   group_by(edad_cat, frag) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -425,7 +443,7 @@ kable(tabla_edadcat_frag,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edadcat_frag <- svychisq(~edad_cat + frag, diseno)
+test_edadcat_frag <- svychisq(~edad_cat + frag, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Fragilidad):\n")
 print(test_edadcat_frag)
 ```
@@ -436,7 +454,7 @@ print(test_edadcat_frag)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs nivel educacional
-tabla_sexo_educ <- diseno %>%
+tabla_sexo_educ <- diseno_mayores %>%
   group_by(sexo, educ) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -448,15 +466,16 @@ kable(tabla_sexo_educ,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_educ <- svychisq(~sexo + educ, diseno)
+test_sexo_educ <- svychisq(~sexo + educ, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Nivel educacional):\n")
 print(test_sexo_educ)
 ```
+
 ```{r tabla-contingencia-zona-educ}
 # Tabla de contingencia con diseño muestral
 
 # Zona vs nivel educacional
-tabla_zona_educ <- diseno %>%
+tabla_zona_educ <- diseno_mayores %>%
   group_by(zona, educ) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -468,7 +487,7 @@ kable(tabla_zona_educ,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_educ <- svychisq(~zona + educ, diseno)
+test_zona_educ <- svychisq(~zona + educ, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Nivel educacional):\n")
 print(test_zona_educ)
 ```
@@ -477,7 +496,7 @@ print(test_zona_educ)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs nivel educacional
-tabla_edad_cat_educ <- diseno %>%
+tabla_edad_cat_educ <- diseno_mayores %>%
   group_by(edad_cat, educ) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -489,7 +508,7 @@ kable(tabla_edad_cat_educ,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edad_cat_educ <- svychisq(~edad_cat + educ, diseno)
+test_edad_cat_educ <- svychisq(~edad_cat + educ, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Nivel educacional):\n")
 print(test_edad_cat_educ)
 ```
@@ -500,7 +519,7 @@ print(test_edad_cat_educ)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs multimorbilidad 2 o más
-tabla_sexo_multi2 <- diseno %>%
+tabla_sexo_multi2 <- diseno_mayores %>%
   group_by(sexo, multi2) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -512,7 +531,7 @@ kable(tabla_sexo_multi2,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_multi2 <- svychisq(~sexo + multi2, diseno)
+test_sexo_multi2 <- svychisq(~sexo + multi2, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Multimorbilidad 2 o más):\n")
 print(test_sexo_multi2)
 ```
@@ -521,7 +540,7 @@ print(test_sexo_multi2)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs multimorbilidad 2 o más
-tabla_zona_multi2 <- diseno %>%
+tabla_zona_multi2 <- diseno_mayores %>%
   group_by(zona, multi2) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -533,7 +552,7 @@ kable(tabla_zona_multi2,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_multi2 <- svychisq(~zona + multi2, diseno)
+test_zona_multi2 <- svychisq(~zona + multi2, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Multimorbilidad 2 o más):\n")
 print(test_zona_multi2)
 ```
@@ -542,7 +561,7 @@ print(test_zona_multi2)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs multimorbilidad 2 o más
-tabla_edad_cat_multi2 <- diseno %>%
+tabla_edad_cat_multi2 <- diseno_mayores %>%
   group_by(edad_cat, multi2) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -554,7 +573,7 @@ kable(tabla_edad_cat_multi2,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edad_cat_multi2 <- svychisq(~edad_cat + multi2, diseno)
+test_edad_cat_multi2 <- svychisq(~edad_cat + multi2, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Multimorbilidad 2 o más):\n")
 print(test_edad_cat_multi2)
 ```
@@ -563,7 +582,7 @@ print(test_edad_cat_multi2)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs multimorbilidad 3 o más
-tabla_sexo_multi3 <- diseno %>%
+tabla_sexo_multi3 <- diseno_mayores %>%
   group_by(sexo, multi3) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -575,7 +594,7 @@ kable(tabla_sexo_multi3,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_multi3 <- svychisq(~sexo + multi3, diseno)
+test_sexo_multi3 <- svychisq(~sexo + multi3, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Multimorbilidad 3 o más):\n")
 print(test_sexo_multi3)
 ```
@@ -584,7 +603,7 @@ print(test_sexo_multi3)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs multimorbilidad 3 o más
-tabla_zona_multi3 <- diseno %>%
+tabla_zona_multi3 <- diseno_mayores %>%
   group_by(zona, multi3) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -596,7 +615,7 @@ kable(tabla_zona_multi3,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_multi3 <- svychisq(~zona + multi3, diseno)
+test_zona_multi3 <- svychisq(~zona + multi3, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Multimorbilidad 3 o más):\n")
 print(test_zona_multi3)
 ```
@@ -605,7 +624,7 @@ print(test_zona_multi3)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs multimorbilidad 3 o más
-tabla_edad_cat_multi3 <- diseno %>%
+tabla_edad_cat_multi3 <- diseno_mayores %>%
   group_by(edad_cat, multi3) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -617,7 +636,7 @@ kable(tabla_edad_cat_multi3,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edad_cat_multi3 <- svychisq(~edad_cat + multi3, diseno)
+test_edad_cat_multi3 <- svychisq(~edad_cat + multi3, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Multimorbilidad 3 o más):\n")
 print(test_edad_cat_multi3)
 ```
@@ -627,7 +646,7 @@ print(test_edad_cat_multi3)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs discapacidad en adultos
-tabla_sexo_disc_adulto <- diseno %>%
+tabla_sexo_disc_adulto <- diseno_mayores %>%
   group_by(sexo, disc_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -639,7 +658,7 @@ kable(tabla_sexo_disc_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_disc_adulto <- svychisq(~sexo + disc_adulto, diseno)
+test_sexo_disc_adulto <- svychisq(~sexo + disc_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Discapacidad en adultos):\n")
 print(test_sexo_disc_adulto)
 ```
@@ -648,7 +667,7 @@ print(test_sexo_disc_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs discapacidad en adultos
-tabla_zona_disc_adulto <- diseno %>%
+tabla_zona_disc_adulto <- diseno_mayores %>%
   group_by(zona, disc_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -660,7 +679,7 @@ kable(tabla_zona_disc_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_disc_adulto <- svychisq(~zona + disc_adulto, diseno)
+test_zona_disc_adulto <- svychisq(~zona + disc_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Discapacidad en adultos):\n")
 print(test_zona_disc_adulto)
 ```
@@ -669,7 +688,7 @@ print(test_zona_disc_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs discapacidad en adultos
-tabla_edad_cat_disc_adulto <- diseno %>%
+tabla_edad_cat_disc_adulto <- diseno_mayores %>%
   group_by(edad_cat, disc_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -681,7 +700,7 @@ kable(tabla_edad_cat_disc_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edad_cat_disc_adulto <- svychisq(~edad_cat + disc_adulto, diseno)
+test_edad_cat_disc_adulto <- svychisq(~edad_cat + disc_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Discapacidad en adultos):\n")
 print(test_edad_cat_disc_adulto)
 ```
@@ -690,7 +709,7 @@ print(test_edad_cat_disc_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs discapacidad en adultos desagregada
-tabla_sexo_disc_grado_adulto <- diseno %>%
+tabla_sexo_disc_grado_adulto <- diseno_mayores %>%
   group_by(sexo, disc_grado_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -702,7 +721,7 @@ kable(tabla_sexo_disc_grado_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_disc_grado_adulto <- svychisq(~sexo + disc_grado_adulto, diseno)
+test_sexo_disc_grado_adulto <- svychisq(~sexo + disc_grado_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Discapacidad en adultos desagregada):\n")
 print(test_sexo_disc_grado_adulto)
 ```
@@ -711,7 +730,7 @@ print(test_sexo_disc_grado_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs discapacidad en adultos desagregada
-tabla_zona_disc_grado_adulto <- diseno %>%
+tabla_zona_disc_grado_adulto <- diseno_mayores %>%
   group_by(zona, disc_grado_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -723,7 +742,7 @@ kable(tabla_zona_disc_grado_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_disc_grado_adulto <- svychisq(~zona + disc_grado_adulto, diseno)
+test_zona_disc_grado_adulto <- svychisq(~zona + disc_grado_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Discapacidad en adultos desagregada):\n")
 print(test_zona_disc_grado_adulto)
 ```
@@ -732,7 +751,7 @@ print(test_zona_disc_grado_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs discapacidad en adultos desagregada
-tabla_edad_cat_disc_grado_adulto <- diseno %>%
+tabla_edad_cat_disc_grado_adulto <- diseno_mayores %>%
   group_by(edad_cat, disc_grado_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -744,7 +763,7 @@ kable(tabla_edad_cat_disc_grado_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edad_cat_disc_grado_adulto <- svychisq(~edad_cat + disc_grado_adulto, diseno)
+test_edad_cat_disc_grado_adulto <- svychisq(~edad_cat + disc_grado_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Discapacidad en adultos desagregada):\n")
 print(test_edad_cat_disc_grado_adulto)
 ```
@@ -753,7 +772,7 @@ print(test_edad_cat_disc_grado_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs dependencia en adultos
-tabla_sexo_depen_adulto <- diseno %>%
+tabla_sexo_depen_adulto <- diseno_mayores %>%
   group_by(sexo, depen_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -765,7 +784,7 @@ kable(tabla_sexo_depen_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_depen_adulto <- svychisq(~sexo + depen_adulto, diseno)
+test_sexo_depen_adulto <- svychisq(~sexo + depen_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Dependencia en adultos):\n")
 print(test_sexo_depen_adulto)
 ```
@@ -774,7 +793,7 @@ print(test_sexo_depen_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs dependencia en adultos
-tabla_zona_depen_adulto <- diseno %>%
+tabla_zona_depen_adulto <- diseno_mayores %>%
   group_by(zona, depen_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -786,7 +805,7 @@ kable(tabla_zona_depen_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_depen_adulto <- svychisq(~zona + depen_adulto, diseno)
+test_zona_depen_adulto <- svychisq(~zona + depen_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Dependencia en adultos):\n")
 print(test_zona_depen_adulto)
 ```
@@ -795,7 +814,7 @@ print(test_zona_depen_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs dependencia en adultos
-tabla_edad_cat_depen_adulto <- diseno %>%
+tabla_edad_cat_depen_adulto <- diseno_mayores %>%
   group_by(edad_cat, depen_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -807,7 +826,7 @@ kable(tabla_edad_cat_depen_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edad_cat_depen_adulto <- svychisq(~edad_cat + depen_adulto, diseno)
+test_edad_cat_depen_adulto <- svychisq(~edad_cat + depen_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Dependencia en adultos):\n")
 print(test_edad_cat_depen_adulto)
 ```
@@ -816,7 +835,7 @@ print(test_edad_cat_depen_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Sexo vs dependencia en adultos desagregado
-tabla_sexo_depen_grado_adulto <- diseno %>%
+tabla_sexo_depen_grado_adulto <- diseno_mayores %>%
   group_by(sexo, depen_grado_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -828,7 +847,7 @@ kable(tabla_sexo_depen_grado_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_sexo_depen_grado_adulto <- svychisq(~sexo + depen_grado_adulto, diseno)
+test_sexo_depen_grado_adulto <- svychisq(~sexo + depen_grado_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Sexo vs Dependencia en adultos):\n")
 print(test_sexo_depen_grado_adulto)
 ```
@@ -837,7 +856,7 @@ print(test_sexo_depen_grado_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Zona vs dependencia en adultos desagregado
-tabla_zona_depen_grado_adulto <- diseno %>%
+tabla_zona_depen_grado_adulto <- diseno_mayores %>%
   group_by(zona, depen_grado_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -849,7 +868,7 @@ kable(tabla_zona_depen_grado_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_zona_depen_grado_adulto <- svychisq(~zona + depen_grado_adulto, diseno)
+test_zona_depen_grado_adulto <- svychisq(~zona + depen_grado_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Zona vs Dependencia en adultos):\n")
 print(test_zona_depen_grado_adulto)
 ```
@@ -859,7 +878,7 @@ print(test_zona_depen_grado_adulto)
 # Tabla de contingencia con diseño muestral
 
 # Edad categorizada vs dependencia en adultos desagregado
-tabla_edad_cat_depen_grado_adulto <- diseno %>%
+tabla_edad_cat_depen_grado_adulto <- diseno_mayores %>%
   group_by(edad_cat, depen_grado_adulto) %>%
   summarise(n = survey_total(na.rm = TRUE),
             prop = survey_mean())
@@ -871,7 +890,7 @@ kable(tabla_edad_cat_depen_grado_adulto,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de independencia
-test_edad_cat_depen_grado_adulto <- svychisq(~edad_cat + depen_grado_adulto, diseno)
+test_edad_cat_depen_grado_adulto <- svychisq(~edad_cat + depen_grado_adulto, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Edad categorizada vs Dependencia en adultos):\n")
 print(test_edad_cat_depen_grado_adulto)
 ```
@@ -882,7 +901,7 @@ print(test_edad_cat_depen_grado_adulto)
 ```{r comparacion-medias-edad-sexo}
 # Comparación de medias con diseño muestral
 # Media de edad según sexo
-comp_edad_sexo <- diseno %>%
+comp_edad_sexo <- diseno_mayores %>%
   group_by(sexo) %>%
   summarise(media = survey_mean(edad, na.rm = TRUE))
 
@@ -893,7 +912,7 @@ kable(comp_edad_sexo,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test t de diferencia de medias
-test_edad_sexo <- svyttest(edad ~ sexo, diseno)
+test_edad_sexo <- svyttest(edad ~ sexo, diseno_mayores)
 cat("\n\nTest t (Edad por Sexo):\n")
 print(test_edad_sexo)
 ```
@@ -901,7 +920,7 @@ print(test_edad_sexo)
 ```{r comparacion-medias-edad-zona}
 # Comparación de medias con diseño muestral
 # Media de edad según zona
-comp_edad_zona <- diseno %>%
+comp_edad_zona <- diseno_mayores %>%
   group_by(zona) %>%
   summarise(media = survey_mean(edad, na.rm = TRUE))
 
@@ -912,7 +931,7 @@ kable(comp_edad_zona,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test t de diferencia de medias
-test_edad_zona <- svyttest(edad ~ zona, diseno)
+test_edad_zona <- svyttest(edad ~ zona, diseno_mayores)
 cat("\n\nTest t (Edad por Zona):\n")
 print(test_edad_zona)
 ```
@@ -921,7 +940,7 @@ print(test_edad_zona)
 
 ```{r caracterizacion-sociodemografica}
 # Prevalencia general de limitación funcional
-prev_lf <- diseno %>%
+prev_lf <- diseno_mayores %>%
   summarise(
     n_total = survey_total(),
     n_con_lf = survey_total(disc_adulto == "En situación"),
@@ -937,7 +956,7 @@ kable(prev_lf,
 
 ```{r caract-sociodemografica-lf}  
 # Características sociodemográficas según limitación funcional
-caract_por_lf <- diseno %>%
+caract_por_lf <- diseno_mayores %>%
   group_by(disc_adulto) %>%
   summarise(
     n = survey_total(),
@@ -954,7 +973,7 @@ kable(caract_por_lf,
 
 ```{r caract-sociodemografica-lf-sexo}
 # Distribución de sexo según LF
-sexo_lf <- diseno %>%
+sexo_lf <- diseno_mayores %>%
   group_by(disc_adulto, sexo) %>%
   summarise(
     n = survey_total(),
@@ -968,14 +987,14 @@ kable(sexo_lf,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de asociación
-test_sexo_lf <- svychisq(~disc_adulto + sexo, diseno)
+test_sexo_lf <- svychisq(~disc_adulto + sexo, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Limitación funcional vs Sexo):\n")
 print(test_sexo_lf)
 ```
 
 ```{r caract-sociodemografica-lf-edad}
 # Distribución de edad categorizada según LF
-edad_lf <- diseno %>%
+edad_lf <- diseno_mayores %>%
   group_by(disc_adulto, edad_cat) %>%
   summarise(
     n = survey_total(),
@@ -989,14 +1008,14 @@ kable(edad_lf,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de asociación
-test_edad_lf <- svychisq(~disc_adulto + edad_cat, diseno)
+test_edad_lf <- svychisq(~disc_adulto + edad_cat, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Limitación funcional vs Edad):\n")
 print(test_edad_lf)
 ```
 
 ```{r caract-sociodemografica-lf-educ}
 # Distribución de educación según LF
-educ_lf <- diseno %>%
+educ_lf <- diseno_mayores %>%
   group_by(disc_adulto, educ) %>%
   summarise(
     n = survey_total(),
@@ -1010,14 +1029,14 @@ kable(educ_lf,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de asociación
-test_educ_lf <- svychisq(~disc_adulto + educ, diseno)
+test_educ_lf <- svychisq(~disc_adulto + educ, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Limitación funcional vs Educación):\n")
 print(test_educ_lf)
 ```
 
 ```{r caract-sociodemografica-lf-zona}
 # Distribución de zona según LF
-zona_lf <- diseno %>%
+zona_lf <- diseno_mayores %>%
   group_by(disc_adulto, zona) %>%
   summarise(
     n = survey_total(),
@@ -1031,7 +1050,7 @@ kable(zona_lf,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de asociación
-test_zona_lf <- svychisq(~disc_adulto + zona, diseno)
+test_zona_lf <- svychisq(~disc_adulto + zona, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Limitación funcional vs Zona):\n")
 print(test_zona_lf)
 ```
@@ -1040,7 +1059,7 @@ print(test_zona_lf)
 
 ```{r prevalencia-multimorbilidad-lf}
 # Prevalencia de multimorbilidad según LF
-prev_multi_lf <- diseno %>%
+prev_multi_lf <- diseno_mayores %>%
   group_by(disc_adulto) %>%
   summarise(
     n_total = survey_total(),
@@ -1059,18 +1078,18 @@ kable(prev_multi_lf,
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Test de asociación
-test_multi2_lf <- svychisq(~disc_adulto + multi2, diseno)
+test_multi2_lf <- svychisq(~disc_adulto + multi2, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Limitación funcional vs Multimorbilidad 2+):\n")
 print(test_multi2_lf)
 
-test_multi3_lf <- svychisq(~disc_adulto + multi3, diseno)
+test_multi3_lf <- svychisq(~disc_adulto + multi3, diseno_mayores)
 cat("\n\nTest Chi-cuadrado (Limitación funcional vs Multimorbilidad 3+):\n")
 print(test_multi3_lf)
 ```
 
 ```{r prevalencia-multimorbilidad2-lf-edad-sexo}
 # Prevalencia de multimorbilidad 2 según edad, sexo Y LF
-prev_multi_estratificada <- diseno %>%
+prev_multi_estratificada <- diseno_mayores %>%
   group_by(disc_adulto, edad_cat, sexo) %>%
   summarise(
     n_total = survey_total(),
@@ -1086,7 +1105,7 @@ kable(prev_multi_estratificada,
 
 ```{r prevalencia-multimorbilidad3-lf-edad-sexo}
 # Prevalencia de multimorbilidad 3 según edad, sexo Y LF
-prev_multi_estratificada <- diseno %>%
+prev_multi_estratificada <- diseno_mayores %>%
   group_by(disc_adulto, edad_cat, sexo) %>%
   summarise(
     n_total = survey_total(),
@@ -1107,7 +1126,7 @@ kable(prev_multi_estratificada,
 
 ```{r regresion-logistica-survey-multi2}
 # Crear variables binarias Y convertir ordinales a nominales para dummies
-diseno_modelo1 <- update(diseno, 
+diseno_modelo1 <- update(diseno_mayores, 
                         disc_binaria = as.numeric(disc_adulto == "En situación"),
                         multi2_binaria = as.numeric(multi2 == "Sí"),
                         # Convertir ordinales a factores nominales (para dummies)
@@ -1151,7 +1170,7 @@ kable(or_tabla_multi2,
 ### Regresión logística con diseño muestral con multimorbilidad 3 o más (objetivo 4)
 ```{r regresion-logistica-survey-multi3}
 # Crear variables binarias Y convertir ordinales a nominales para dummies
-diseno_modelo2 <- update(diseno, 
+diseno_modelo2 <- update(diseno_mayores, 
                         disc_binaria = as.numeric(disc_adulto == "En situación"),
                         multi3_binaria = as.numeric(multi3 == "Sí"),
                         # Convertir ordinales a factores nominales (para dummies)
@@ -1205,135 +1224,267 @@ kable(or_tabla_multi3,
 
 # Output: Resultados y visualizaciones
 
-## Gráficos descriptivos
-
-**Nota**: Los gráficos usan datos ponderados cuando es posible.
-
-### Gráfico de características sociodemográficas por LF
-```{r graficos-sociodemograficos, fig.width=10, fig.height=8}
-# Gráfico de características sociodemográficas por LF
-library(gridExtra)
-
-# Gráfico sexo
-p1 <- sexo_lf %>%
-  ggplot(aes(x = disc_adulto, y = prop, fill = sexo)) +
-  geom_col(position = "dodge") +
-  geom_errorbar(aes(ymin = prop - prop_se, ymax = prop + prop_se),
-                position = position_dodge(0.9), width = 0.2) +
-  scale_y_continuous(labels = scales::percent) +
-  labs(title = "Sexo", x = "", y = "Proporción", fill = "") +
-  theme_minimal()
-
-# Gráfico edad
-p2 <- edad_lf %>%
-  ggplot(aes(x = disc_adulto, y = prop, fill = edad_cat)) +
-  geom_col(position = "dodge") +
-  geom_errorbar(aes(ymin = prop - prop_se, ymax = prop + prop_se),
-                position = position_dodge(0.9), width = 0.2) +
-  scale_y_continuous(labels = scales::percent) +
-  labs(title = "Edad", x = "", y = "Proporción", fill = "") +
-  theme_minimal()
-
-# Gráfico zona
-p3 <- zona_lf %>%
-  ggplot(aes(x = disc_adulto, y = prop, fill = zona)) +
-  geom_col(position = "dodge") +
-  geom_errorbar(aes(ymin = prop - prop_se, ymax = prop + prop_se),
-                position = position_dodge(0.9), width = 0.2) +
-  scale_y_continuous(labels = scales::percent) +
-  labs(title = "Zona", x = "Limitación funcional", y = "Proporción", fill = "") +
-  theme_minimal()
-
-grid.arrange(p1, p2, p3, ncol = 2)
-```
-```{r graficos-prevalencia-multimorbilidad, fig.width=10, fig.height=6}
-# Gráfico de prevalencia de multimorbilidad
-ggplot(prev_multi_estratificada, 
-       aes(x = edad_cat, y = multi2_prev, fill = sexo)) +
-  geom_col(position = "dodge") +
-  geom_errorbar(aes(ymin = multi2_prev - multi2_prev_se,
-                    ymax = multi2_prev + multi2_prev_se),
-                position = position_dodge(0.9), width = 0.2) +
-  facet_wrap(~disc_adulto) +
-  scale_y_continuous(labels = scales::percent) +
-  labs(title = "Prevalencia de multimorbilidad (2+) según limitación funcional, edad y sexo",
-       x = "Grupo de edad",
-       y = "Prevalencia",
-       fill = "Sexo") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-
-
-```{r graficos-univariados, fig.width=10, fig.height=6}
-# Histograma ponderado de variable numérica
-if(length(vars_numericas) > 0) {
-  var_plot <- vars_numericas[1]
-  
-  df %>%
-    ggplot(aes(x = .data[[var_plot]], weight = fexp)) +
-    geom_histogram(fill = "steelblue", color = "white", bins = 30) +
-    labs(title = paste("Distribución de", var_plot, "(ponderado)"),
-         x = var_plot,
-         y = "Frecuencia ponderada") +
-    theme_minimal()
+```{r función-estilo-tablas}
+# --- FUNCIÓN DE ESTILO PARA TABLAS (Norma: Sin líneas verticales) ---
+estilo_revista <- function(tabla_kable) {
+  tabla_kable %>%
+    kable_classic(full_width = F, html_font = "Times New Roman") %>% # Fuente serif es común en papers
+    row_spec(0, bold = TRUE) %>% # Encabezados en negrita
+    kable_styling(bootstrap_options = "none") # Limpiar estilos web
 }
 ```
 
-```{r graficos-categoricos, fig.width=10, fig.height=6}
-# Gráfico de barras ponderado
-if(length(vars_categoricas) > 0) {
-  var_plot <- vars_categoricas[1]
-  
-  tabla_plot <- diseno %>%
-    group_by(.data[[var_plot]]) %>%
-    summarise(prop = survey_mean(na.rm = TRUE)) %>%
-    filter(!is.na(.data[[var_plot]]))
-  
-  ggplot(tabla_plot, aes(x = reorder(.data[[var_plot]], prop), 
-                         y = prop)) +
-    geom_col(fill = "coral") +
-    geom_errorbar(aes(ymin = prop - prop_se, 
-                      ymax = prop + prop_se),
-                  width = 0.2) +
-    coord_flip() +
-    labs(title = paste("Distribución de", var_plot, "(con IC 95%)"),
-         x = var_plot,
-         y = "Proporción") +
-    theme_minimal()
+
+## Tabla 1. Caracterización de la Población Mayor (60+ años)
+
+```{r}
+# --- PASO 1: PREPARAR EL DISEÑO ---
+# Solo necesitamos crear la variable de grupos de edad, las demás YA EXISTEN.
+diseno_tabla <- update(diseno_mayores, 
+  edad_grp = cut(edad, 
+                 breaks = c(60, 70, 80, 150), 
+                 labels = c("60-69 años", "70-79 años", "80 años y más"),
+                 include.lowest = TRUE, right = FALSE)
+)
+
+# --- PASO 2: FUNCIÓN PARA GENERAR FILAS ---
+# Esta función resume n (sin ponderar) y % (ponderado) automáticamente
+get_row <- function(design, var_name, label_title) {
+  design %>% 
+    group_by(!!sym(var_name)) %>% 
+    summarise(
+      n = unweighted(n()), 
+      prop = survey_mean(vartype = "ci", na.rm = TRUE)
+    ) %>% 
+    mutate(Variable = paste0(label_title, ": ", !!sym(var_name))) %>% 
+    select(Variable, n, prop, prop_low, prop_upp)
 }
+
+# --- PASO 3: GENERAR LOS DATOS ---
+
+# A) Sociodemográficos
+# Usamos 'sexo', 'edad_grp', 'educ' (nombre real en tu base), 'zona'
+fila_sexo <- get_row(diseno_tabla, "sexo", "Sexo")
+fila_edad <- get_row(diseno_tabla, "edad_grp", "Edad")
+fila_educ <- get_row(diseno_tabla, "educ", "Educación")
+fila_zona <- get_row(diseno_tabla, "zona", "Zona")
+
+# B) Salud
+# -- Multimorbilidad (2+) --
+fila_multi2 <- get_row(diseno_tabla, "multi2", "Multimorbilidad (2+)") %>%
+  # Filtramos para mostrar solo la fila del "Sí" (o el 1)
+  filter(grepl("Sí|1", Variable)) %>% 
+  mutate(Variable = "Multimorbilidad ≥ 2: Sí")
+
+# -- Multimorbilidad (3+) [NUEVA] --
+fila_multi3 <- get_row(diseno_tabla, "multi3", "Multimorbilidad (3+)") %>%
+  # Filtramos para mostrar solo la fila del "Sí" (o el 1)
+  filter(grepl("Sí|1", Variable)) %>% 
+  mutate(Variable = "Multimorbilidad ≥ 3: Sí")
+
+# -- Fragilidad --
+fila_frag <- get_row(diseno_tabla, "frag", "Fragilidad")
+
+# --- PASO 4: UNIR Y RENDERIZAR ---
+tabla_final <- bind_rows(fila_sexo, fila_edad, fila_educ, fila_zona, fila_multi2, fila_multi3, fila_frag) %>% 
+  filter(!is.na(Variable) & !grepl("NA", Variable)) %>% 
+  mutate(
+    `% (IC 95%)` = paste0(format(round(prop * 100, 1), nsmall=1), "% [", 
+                          format(round(prop_low * 100, 1), nsmall=1), "-", 
+                          format(round(prop_upp * 100, 1), nsmall=1), "]")
+  ) %>% 
+  select(Variable, n, `% (IC 95%)`)
+
+kable(tabla_final, 
+      caption = "Tabla 1. Características de la población mayor de 60 años (Chile, 2022).", 
+      booktabs = TRUE) %>% 
+  kable_styling(full_width = F, position = "center") %>% 
+  pack_rows("Sociodemográficos", 1, nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona)) %>%
+  pack_rows("Salud", nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona) + 1, nrow(tabla_final)) %>%
+  footnote(general = "Fuente: Elaboración propia a partir de ENDIDE 2022. n = Muestra efectiva; % = Ponderado.")
 ```
 
-## Gráficos bivariados
+```{r guardar-tabla1}  
+# 1. CREAR Y ASIGNAR EL OBJETO (Igual que antes)
+tabla_final1 <- kable(tabla_final, 
+      caption = "Tabla 1. Características de la población mayor de 60 años (Chile, 2022).", 
+      booktabs = TRUE,
+      escape = FALSE) %>% 
+  kable_styling(full_width = F, position = "center") %>% 
+  pack_rows("Sociodemográficos", 1, nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona)) %>%
+  pack_rows("Salud", nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona) + 1, nrow(tabla_final)) %>%
+  footnote(general = "Fuente: Elaboración propia a partir de ENDIDE 2022. n = Muestra efectiva; % = Ponderado.")
 
-```{r graficos-bivariados, fig.width=10, fig.height=6}
-# Ejemplo: boxplot o gráfico de medias por grupo
-# Ajusta según tus variables
+# 2. GUARDAR USANDO HERE (La parte nueva)
 
-# if(length(vars_numericas) > 0 & length(vars_categoricas) > 0) {
-#   medias_grupo <- diseno %>%
-#     group_by(variable_categorica) %>%
-#     summarise(media = survey_mean(variable_numerica, na.rm = TRUE))
-#   
-#   ggplot(medias_grupo, aes(x = variable_categorica, y = media)) +
-#     geom_col(fill = "lightblue") +
-#     geom_errorbar(aes(ymin = media - media_se,
-#                       ymax = media + media_se),
-#                   width = 0.2) +
-#     labs(title = "Media por grupo (con IC 95%)",
-#          x = "Grupo",
-#          y = "Media") +
-#     theme_minimal()
-# }
+# A) Definimos la ruta de la CARPETA donde queremos guardar
+# here() empieza desde la raíz del proyecto -> entra a 'output' -> entra a 'tables'
+ruta_carpeta <- here("output", "tables")
+
+# B) Definimos la ruta completa del ARCHIVO (carpeta + nombre.png)
+ruta_archivo_png <- here("output", "tables", "tabla1_descriptiva.png")
+ruta_archivo_html <- here("output", "tables", "tabla1_descriptiva.html")
+
+# C) Guardamos
+# Guardar imagen
+save_kable(tabla_final1, file = ruta_archivo_png, zoom = 2)
+
+# Guardar HTML (opcional, útil para copiar a Word)
+save_kable(tabla_final1, file = ruta_archivo_html)
 ```
 
-## Tablas de resultados finales
 
-```{r tabla-resumen-final}
-# Tabla resumen de principales hallazgos
-# Personaliza según tus resultados
+
+## Gráfico 1. Prevalencia de grados de discapacidad según presencia de multimorbilidad
+
+```{r}
+# --- PASO 1: Generar las 3 tablas por separado ---
+
+# A. Grupo de Referencia: SIN Multimorbilidad (< 2 enfermedades)
+datos_ref <- diseno_mayores %>%
+  filter(multi2 == "No" | multi2 == 0) %>% 
+  group_by(disc_grado_adulto) %>%
+  summarise(prop = survey_mean(vartype = "ci")) %>%
+  mutate(Grupo = "Sin Multimorbilidad (<2)") %>% 
+  ungroup()
+
+# B. Grupo: Multimorbilidad estándar (≥ 2)
+datos_multi2 <- diseno_mayores %>%
+  filter(multi2 == "Sí" | multi2 == 1) %>% 
+  group_by(disc_grado_adulto) %>%
+  summarise(prop = survey_mean(vartype = "ci")) %>%
+  mutate(Grupo = "Multimorbilidad ≥ 2") %>% 
+  ungroup()
+
+# C. Grupo: Alta carga (≥ 3)
+datos_multi3 <- diseno_mayores %>%
+  filter(multi3 == "Sí" | multi3 == 1) %>% 
+  group_by(disc_grado_adulto) %>%
+  summarise(prop = survey_mean(vartype = "ci")) %>%
+  mutate(Grupo = "Multimorbilidad ≥ 3") %>% 
+  ungroup()
+
+# --- PASO 2: Unir y Ordenar ---
+datos_comparativos_3 <- bind_rows(datos_ref, datos_multi2, datos_multi3) %>% 
+  filter(!is.na(disc_grado_adulto)) %>%
+  # IMPORTANTE: Definir el orden de aparición en el eje X
+  mutate(Grupo = factor(Grupo, levels = c("Sin Multimorbilidad (<2)", 
+                                          "Multimorbilidad ≥ 2", 
+                                          "Multimorbilidad ≥ 3")))
+
+# --- PASO 3: Graficar ---
+grafico_gradiente <- ggplot(datos_comparativos_3, 
+                            aes(x = Grupo, y = prop, fill = disc_grado_adulto)) +
+  
+  geom_col(position = position_dodge(width = 0.9), color = "black") +
+  
+  geom_errorbar(aes(ymin = prop_low, ymax = prop_upp), 
+                position = position_dodge(width = 0.9), width = 0.25) +
+  
+  # --- CORRECCIÓN AQUÍ ---
+  # Cambiamos el límite de 0.6 a 0.8 (80%) para que no se borre ninguna barra.
+  # Si aún se corta, cámbialo a c(0, 1).
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.8), expand = c(0,0)) + 
+  
+  scale_fill_grey(start = 0.95, end = 0.4) + 
+  
+  labs(
+    title = "Gráfico 1. Gradiente de Discapacidad según carga de Multimorbilidad",
+    subtitle = "Comparación de umbrales (Población 60+ años, Chile 2022)",
+    y = "Prevalencia (%)",
+    x = "", 
+    fill = "Grado Discapacidad",
+    caption = "Fuente: Elaboración propia a partir de ENDIDE 2022.\nNota: Las categorías ≥2 y ≥3 no son mutuamente excluyentes."
+  ) +
+  
+  theme_classic() +
+  theme(
+    legend.position = "bottom",
+    text = element_text(family = "serif", size = 12),
+    axis.text = element_text(color = "black"),
+    plot.caption = element_text(hjust = 0, face = "italic", margin = margin(t = 10))
+  )
+
+# 3. Mostrar y Guardar
+print(grafico_gradiente)
+
+here("output", "figures")
+ggsave(filename = here("output", "figures", "grafico_gradiente_multi.png"), 
+       plot = grafico_gradiente, 
+       width = 9, height = 6, dpi = 300)
 ```
+
+
+
+## Tabla 2. Modelos de regresión logística ajustados para discapacidad severa en personas mayores (Objetivo 4)
+
+```{r}
+
+#| label: tabla-regresion-final-ok
+#| warning: false
+#| message: false
+
+# --- PASO 1: Generar la tabla (guardándola en un objeto) ---
+mi_tabla <- tab_model(
+  modelo_multi2, modelo_multi3,
+  
+  # 1. Configuración Visual
+  show.ci = 0.95,
+  collapse.ci = TRUE, 
+  p.style = "numeric", 
+  digits = 2,
+  emph.p = TRUE,
+  
+  # 2. Encabezados
+  dv.labels = c("Multimorbilidad >= 2", "Multimorbilidad >= 3"),
+  title = "Tabla 2. Comparación de modelos de Discapacidad en personas mayores (Población 60+ años, Chile 2022)",
+  
+  # 3. Reordenar
+  order.terms = c(1, 2, 9, 3, 4, 5, 6, 7, 8),
+  
+  # 4. Etiquetas
+  pred.labels = c(
+    "(Intercepto)",
+    "Multimorbilidad >= 2 (Sí)",     
+    "Edad: 75 años o más",          
+    "Sexo: Mujer",                  
+    "Educación: Básica / Primaria", 
+    "Educación: Media / Secundaria",
+    "Educación: Superior",          
+    "Zona: Rural",                  
+    "Multimorbilidad >= 3 (Sí)"
+  ),
+  
+  string.est = "OR",
+  string.ci = "IC 95%",
+  string.p = "Valor p"
+)
+
+# --- PASO 2: Guardar en Word (Codificación UTF-8 para acentos) ---
+
+# Definir ruta
+ruta_archivo <- here("output", "tables", "tabla2_regresion_discapacidad.doc")
+
+# Guardar
+con <- file(ruta_archivo, encoding = "UTF-8")
+writeLines(mi_tabla$page.complete, con)
+close(con)
+error = function(e) {
+  warning("No se pudo guardar el Word (quizás está abierto), pero la tabla se mostrará igual.")
+}
+
+# --- PASO 3: MOSTRAR EN QUARTO (SOLUCIÓN DEFINITIVA) ---
+# Usamos cat() para inyectar el HTML directamente
+mi_tabla
+message("Archivo guardado en: ", ruta_archivo)
+
+```
+
+```{r}
+# Fuente: Elaboración propia a partir de ENDIDE 2022. Modelos ajustados por edad, sexo, educación y zona.
+```
+
+
 
 # Conclusiones
 
@@ -1343,6 +1494,7 @@ Resumen de los principales hallazgos del análisis, considerando que todas las e
 
 ::: {#refs}
 :::
+
 
 # Información de sesión
 
@@ -1355,8 +1507,8 @@ sessionInfo()
 ```{r anexo-verificacion}
 # Información técnica del diseño
 cat("Resumen del diseño muestral:\n")
-cat("- Estratos:", length(unique(diseno$variables$estrato)), "\n")
-cat("- PSUs:", length(unique(diseno$variables$upm)), "\n")
-cat("- Observaciones:", nrow(diseno$variables), "\n")
-cat("- Suma de ponderadores:", sum(weights(diseno)), "\n")
+cat("- Estratos:", length(unique(diseno_mayores$variables$estrato)), "\n")
+cat("- PSUs:", length(unique(diseno_mayores$variables$upm)), "\n")
+cat("- Observaciones:", nrow(diseno_mayores$variables), "\n")
+cat("- Suma de ponderadores:", sum(weights(diseno_mayores)), "\n")
 ```
