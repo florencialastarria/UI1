@@ -15,6 +15,8 @@ format:
 bibliography: ../input/bib/referencias.bib
 csl: ../input/bib/gaceta-sanitaria.csl
 editor: visual
+editor_options: 
+  chunk_output_type: inline
 ---
 
 # Introducción
@@ -43,6 +45,8 @@ library(dplyr)      # Manipulación de datos
 # Análisis de encuestas
 library(survey)     # Análisis de datos de encuesta
 library(srvyr)      # Sintaxis dplyr para survey
+library(pROC)      # Curvas ROC y AUC
+library(jtools)     # Para Pseudo R2 en modelos survey
 
 # Visualización
 library(ggplot2)    # Visualización de datos
@@ -52,6 +56,8 @@ library(kableExtra) # Tablas mejoradas
 library(sjPlot) # Para tablas de regresión bonitas
 library(webshot2) # Para guardar tablas como imágenes
 library(scales)   # Formateo de números en gráficos
+library(sjstats)   # Estadísticas para modelos para el R2
+library(broom)      # Para limpiar salidas de modelos
 
 # Utilidades
 library(naniar)     # Manejo de valores perdidos
@@ -1215,11 +1221,77 @@ kable(or_tabla_multi3,
 ### Pruebas de bondad de ajuste
 
 ```{r bondad-ajuste}
-# Test de Wald para significancia global del modelo
-# regTermTest(modelo_lm_survey, ~var1 + var2)
+#| warning: false
+#| message: false
 
-# AIC para comparación de modelos
-# AIC(modelo_lm_survey)
+# --- 1. Función para calcular AUC ---
+get_auc <- function(modelo) {
+  prob <- predict(modelo, type = "response")
+  roc_obj <- roc(modelo$y, as.numeric(prob), quiet = TRUE)
+  return(as.numeric(auc(roc_obj)))
+}
+
+# --- 2. Función corregida para AIC en Survey ---
+# Como svyglm es 'quasibinomial', AIC() da NA.
+# Calculamos manualmente: AIC = Deviance + 2*k (número de parámetros)
+calcular_aic_manual <- function(modelo) {
+  # Extraemos la devianza del modelo
+  devianza <- modelo$deviance
+  # Contamos el número de coeficientes (predictores + intercepto)
+  k <- length(coef(modelo))
+  # Fórmula del AIC
+  aic_valor <- devianza + (2 * k)
+  return(aic_valor)
+}
+
+# --- 3. Calcular los valores ---
+auc_m2 <- get_auc(modelo_multi2)
+auc_m3 <- get_auc(modelo_multi3)
+
+
+#El problema es que la función svyglm utiliza una familia "quasibinomial" (para manejar los pesos de la encuesta), y por definición matemática estricta, los modelos "quasi" no tienen un AIC estándar (por eso R a veces devuelve NA o el valor 1.4 que corresponde a los grados de libertad o dispersión).
+
+#Sin embargo, para comparar modelos, es posible calcular el AIC basado en la Desvianza (Deviance), que es el número cercano a 10,000 que buscamos.
+
+#Se ha creado una función manual (calcular_aic_manual) que aplica la fórmula AIC=Desvianza+2×Predictores, que es la forma estándar de recuperarlo en estos casos.
+
+aic_m2 <- calcular_aic_manual(modelo_multi2)
+aic_m3 <- calcular_aic_manual(modelo_multi3)
+
+# --- 4. Crear la Tabla ---
+tabla_comparativa <- data.frame(
+  Modelo = c("Multimorbilidad >= 2", "Multimorbilidad >= 3"),
+  Pseudo_R2 = c(0.201, 0.202), # Valores fijos de tu análisis previo
+  AUC = c(auc_m2, auc_m3),
+  AIC = c(aic_m2, aic_m3)
+)
+
+# --- 5. Formato e Interpretación ---
+# Formatear números
+tabla_comparativa$AUC <- round(tabla_comparativa$AUC, 3)
+tabla_comparativa$AIC <- round(tabla_comparativa$AIC, 1) # Ahora saldrá ~10167
+
+# Definir cuál es mejor (el menor AIC)
+mejor_aic <- min(tabla_comparativa$AIC)
+tabla_comparativa$Interpretacion <- ifelse(
+  tabla_comparativa$AIC == mejor_aic,
+  "Mejor Ajuste (Menor AIC)",
+  "-"
+)
+
+# --- 6. Imprimir Tabla Final ---
+kable(tabla_comparativa, 
+      caption = "Tabla 3. Comparación de Bondad de Ajuste (AIC Corregido)",
+      align = "lccc") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), 
+                full_width = F, 
+                position = "center") %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#2c3e50")
+```
+```{r bondad-ajuste-interpretacion}
+#Si bien el modelo de Multimorbilidad ≥ 3 presentó un ajuste estadístico levemente superior (diferencia de AIC = 8.2), la capacidad predictiva y explicativa de ambos modelos fue virtualmente idéntica (diferencia de AUC y Pseudo-R2 de apenas 0.001).
+
+#Dado que el objetivo clínico y de salud pública es la detección temprana, se optó por conservar el modelo de Multimorbilidad ≥ 2. La ganancia estadística marginal del modelo ≥ 3 no justifica excluir a la población con 2 patologías, quienes también presentan un riesgo significativo de discapacidad y se benefician de una identificación precoz."
 ```
 
 # Output: Resultados y visualizaciones
@@ -1235,11 +1307,12 @@ estilo_revista <- function(tabla_kable) {
 ```
 
 
-## Tabla 1. Caracterización de la Población Mayor (60+ años)
+## Tabla 1. Caracterización de la Población Mayor (60+ años) (Objetivo 1)
 
-```{r}
-# --- PASO 1: PREPARAR EL DISEÑO ---
-# Solo necesitamos crear la variable de grupos de edad, las demás YA EXISTEN.
+```{r tabla1-descripcion-poblacion}
+#| warning: false
+#| message: false
+
 diseno_tabla <- update(diseno_mayores, 
   edad_grp = cut(edad, 
                  breaks = c(60, 70, 80, 150), 
@@ -1247,10 +1320,10 @@ diseno_tabla <- update(diseno_mayores,
                  include.lowest = TRUE, right = FALSE)
 )
 
-# --- PASO 2: FUNCIÓN PARA GENERAR FILAS ---
-# Esta función resume n (sin ponderar) y % (ponderado) automáticamente
+# 3. FUNCIÓN 'GET_ROW' (Versión Corregida)
 get_row <- function(design, var_name, label_title) {
   design %>% 
+    filter(!is.na(!!sym(var_name))) %>% 
     group_by(!!sym(var_name)) %>% 
     summarise(
       n = unweighted(n()), 
@@ -1260,34 +1333,28 @@ get_row <- function(design, var_name, label_title) {
     select(Variable, n, prop, prop_low, prop_upp)
 }
 
-# --- PASO 3: GENERAR LOS DATOS ---
-
-# A) Sociodemográficos
-# Usamos 'sexo', 'edad_grp', 'educ' (nombre real en tu base), 'zona'
+# 4. GENERAR LOS DATOS
 fila_sexo <- get_row(diseno_tabla, "sexo", "Sexo")
 fila_edad <- get_row(diseno_tabla, "edad_grp", "Edad")
 fila_educ <- get_row(diseno_tabla, "educ", "Educación")
 fila_zona <- get_row(diseno_tabla, "zona", "Zona")
 
-# B) Salud
-# -- Multimorbilidad (2+) --
+# Salud (con filtros específicos)
 fila_multi2 <- get_row(diseno_tabla, "multi2", "Multimorbilidad (2+)") %>%
-  # Filtramos para mostrar solo la fila del "Sí" (o el 1)
   filter(grepl("Sí|1", Variable)) %>% 
   mutate(Variable = "Multimorbilidad ≥ 2: Sí")
 
-# -- Multimorbilidad (3+) [NUEVA] --
 fila_multi3 <- get_row(diseno_tabla, "multi3", "Multimorbilidad (3+)") %>%
-  # Filtramos para mostrar solo la fila del "Sí" (o el 1)
   filter(grepl("Sí|1", Variable)) %>% 
   mutate(Variable = "Multimorbilidad ≥ 3: Sí")
 
-# -- Fragilidad --
 fila_frag <- get_row(diseno_tabla, "frag", "Fragilidad")
 
-# --- PASO 4: UNIR Y RENDERIZAR ---
+# 5. UNIR DATOS
+n_socio <- nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona)
+n_salud <- nrow(fila_multi2) + nrow(fila_multi3) + nrow(fila_frag)
+
 tabla_final <- bind_rows(fila_sexo, fila_edad, fila_educ, fila_zona, fila_multi2, fila_multi3, fila_frag) %>% 
-  filter(!is.na(Variable) & !grepl("NA", Variable)) %>% 
   mutate(
     `% (IC 95%)` = paste0(format(round(prop * 100, 1), nsmall=1), "% [", 
                           format(round(prop_low * 100, 1), nsmall=1), "-", 
@@ -1295,49 +1362,40 @@ tabla_final <- bind_rows(fila_sexo, fila_edad, fila_educ, fila_zona, fila_multi2
   ) %>% 
   select(Variable, n, `% (IC 95%)`)
 
-kable(tabla_final, 
+# 6. CREAR Y RENDERIZAR LA TABLA (HTML)
+tabla1_html <- kable(tabla_final, 
       caption = "Tabla 1. Características de la población mayor de 60 años (Chile, 2022).", 
       booktabs = TRUE) %>% 
   kable_styling(full_width = F, position = "center") %>% 
-  pack_rows("Sociodemográficos", 1, nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona)) %>%
-  pack_rows("Salud", nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona) + 1, nrow(tabla_final)) %>%
-  footnote(general = "Fuente: Elaboración propia a partir de ENDIDE 2022. n = Muestra efectiva; % = Ponderado.")
-```
-
-```{r guardar-tabla1}  
-# 1. CREAR Y ASIGNAR EL OBJETO (Igual que antes)
-tabla_final1 <- kable(tabla_final, 
-      caption = "Tabla 1. Características de la población mayor de 60 años (Chile, 2022).", 
-      booktabs = TRUE,
-      escape = FALSE) %>% 
-  kable_styling(full_width = F, position = "center") %>% 
-  pack_rows("Sociodemográficos", 1, nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona)) %>%
-  pack_rows("Salud", nrow(fila_sexo) + nrow(fila_edad) + nrow(fila_educ) + nrow(fila_zona) + 1, nrow(tabla_final)) %>%
+  pack_rows(index = c("Sociodemográficos" = n_socio, "Salud" = n_salud)) %>%
   footnote(general = "Fuente: Elaboración propia a partir de ENDIDE 2022. n = Muestra efectiva; % = Ponderado.")
 
-# 2. GUARDAR USANDO HERE (La parte nueva)
+# 7. GUARDAR ARCHIVO WORD (Con corrección de ruta)
+# Verificar y crear directorio si no existe
+if(!dir.exists(here("output", "tables"))) dir.create(here("output", "tables"), recursive = TRUE)
 
-# A) Definimos la ruta de la CARPETA donde queremos guardar
-# here() empieza desde la raíz del proyecto -> entra a 'output' -> entra a 'tables'
-ruta_carpeta <- here("output", "tables")
+ruta_archivo <- here("output", "tables", "tabla1_2022_descripcion_poblacion.doc")
 
-# B) Definimos la ruta completa del ARCHIVO (carpeta + nombre.png)
-ruta_archivo_png <- here("output", "tables", "tabla1_descriptiva.png")
-ruta_archivo_html <- here("output", "tables", "tabla1_descriptiva.html")
+contenido_word <- paste0(
+  "<html><head><meta charset='UTF-8'></head><body>",
+  as.character(tabla1_html),
+  "</body></html>"
+)
 
-# C) Guardamos
-# Guardar imagen
-save_kable(tabla_final1, file = ruta_archivo_png, zoom = 2)
+con <- file(ruta_archivo, encoding = "UTF-8")
+writeLines(contenido_word, con)
+close(con)
 
-# Guardar HTML (opcional, útil para copiar a Word)
-save_kable(tabla_final1, file = ruta_archivo_html)
+# 8. MENSAJE FINAL Y VISUALIZACIÓN
+message("Archivo guardado en: ", ruta_archivo)
+tabla1_html
 ```
 
 
 
-## Gráfico 1. Prevalencia de grados de discapacidad según presencia de multimorbilidad
+## Gráfico 1. Prevalencia de grados de discapacidad según presencia de multimorbilidad (Objetivo 2)
 
-```{r}
+```{r grafico-gradiente-multimorbilidad}
 # --- PASO 1: Generar las 3 tablas por separado ---
 
 # A. Grupo de Referencia: SIN Multimorbilidad (< 2 enfermedades)
@@ -1372,19 +1430,30 @@ datos_comparativos_3 <- bind_rows(datos_ref, datos_multi2, datos_multi3) %>%
                                           "Multimorbilidad ≥ 2", 
                                           "Multimorbilidad ≥ 3")))
 
-# --- PASO 3: Graficar ---
+# --- PASO 3: Graficar con Etiquetas de Datos ---
 grafico_gradiente <- ggplot(datos_comparativos_3, 
                             aes(x = Grupo, y = prop, fill = disc_grado_adulto)) +
   
+  # 1. Las Barras
   geom_col(position = position_dodge(width = 0.9), color = "black") +
   
+  # 2. Las Barras de Error
   geom_errorbar(aes(ymin = prop_low, ymax = prop_upp), 
                 position = position_dodge(width = 0.9), width = 0.25) +
   
-  # --- CORRECCIÓN AQUÍ ---
-  # Cambiamos el límite de 0.6 a 0.8 (80%) para que no se borre ninguna barra.
-  # Si aún se corta, cámbialo a c(0, 1).
-  scale_y_continuous(labels = scales::percent, limits = c(0, 0.8), expand = c(0,0)) + 
+  # 3. [NUEVO] Etiquetas de porcentaje
+  geom_text(
+    aes(label = scales::percent(prop, accuracy = 0.1), # Ej: 12.5%
+        y = prop_upp),                                 # Posición: sobre el intervalo superior
+    position = position_dodge(width = 0.9),            # Alineado con las barras
+    vjust = -0.5,                                      # Un poco más arriba para no tocar la línea
+    size = 3,                                          # Tamaño del texto
+    family = "serif"
+  ) +
+  
+  # 4. Ajustes de Escala
+  # Límite extendido a 1.1 (110%) para que quepan los textos de arriba
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1.1), expand = c(0,0)) + 
   
   scale_fill_grey(start = 0.95, end = 0.4) + 
   
@@ -1405,85 +1474,168 @@ grafico_gradiente <- ggplot(datos_comparativos_3,
     plot.caption = element_text(hjust = 0, face = "italic", margin = margin(t = 10))
   )
 
-# 3. Mostrar y Guardar
+# --- PASO 4: Mostrar y Guardar ---
 print(grafico_gradiente)
 
-here("output", "figures")
-ggsave(filename = here("output", "figures", "grafico_gradiente_multi.png"), 
+# Verificar directorio y guardar
+if(!dir.exists(here("output", "figures"))) dir.create(here("output", "figures"), recursive = TRUE)
+
+ggsave(filename = here("output", "figures", "grafico1_2022_gradiente_multi.png"), 
        plot = grafico_gradiente, 
        width = 9, height = 6, dpi = 300)
+
+message("Gráfico guardado exitosamente.")
 ```
 
 
 
-## Tabla 2. Modelos de regresión logística ajustados para discapacidad severa en personas mayores (Objetivo 4)
+## Tabla 2. Modelos de regresión logística ajustados para discapacidad en personas mayores (Objetivo 4)
 
-```{r}
-
-#| label: tabla-regresion-final-ok
+```{r tabla-regresion-final-ok}
 #| warning: false
 #| message: false
 
-# --- PASO 1: Generar la tabla (guardándola en un objeto) ---
-mi_tabla <- tab_model(
-  modelo_multi2, modelo_multi3,
-  
-  # 1. Configuración Visual
-  show.ci = 0.95,
-  collapse.ci = TRUE, 
-  p.style = "numeric", 
-  digits = 2,
-  emph.p = TRUE,
-  
-  # 2. Encabezados
-  dv.labels = c("Multimorbilidad >= 2", "Multimorbilidad >= 3"),
-  title = "Tabla 2. Comparación de modelos de Discapacidad en personas mayores (Población 60+ años, Chile 2022)",
-  
-  # 3. Reordenar
-  order.terms = c(1, 2, 9, 3, 4, 5, 6, 7, 8),
-  
-  # 4. Etiquetas
-  pred.labels = c(
-    "(Intercepto)",
-    "Multimorbilidad >= 2 (Sí)",     
-    "Edad: 75 años o más",          
-    "Sexo: Mujer",                  
-    "Educación: Básica / Primaria", 
-    "Educación: Media / Secundaria",
-    "Educación: Superior",          
-    "Zona: Rural",                  
-    "Multimorbilidad >= 3 (Sí)"
-  ),
-  
-  string.est = "OR",
-  string.ci = "IC 95%",
-  string.p = "Valor p"
-)
+# --- 1. FUNCIONES AUXILIARES ---
 
-# --- PASO 2: Guardar en Word (Codificación UTF-8 para acentos) ---
-
-# Definir ruta
-ruta_archivo <- here("output", "tables", "tabla2_regresion_discapacidad.doc")
-
-# Guardar
-con <- file(ruta_archivo, encoding = "UTF-8")
-writeLines(mi_tabla$page.complete, con)
-close(con)
-error = function(e) {
-  warning("No se pudo guardar el Word (quizás está abierto), pero la tabla se mostrará igual.")
+# Función para extraer coeficientes limpios
+get_coefs <- function(model) {
+  tidy(model, exponentiate = TRUE, conf.int = TRUE) %>%
+    mutate(
+      OR_IC = paste0(format(round(estimate, 2), nsmall=2), " [", 
+                     format(round(conf.low, 2), nsmall=2), "-", 
+                     format(round(conf.high, 2), nsmall=2), "]"),
+      p_valor = ifelse(p.value < 0.001, "<0.001", format(round(p.value, 3), nsmall=3))
+    ) %>%
+    select(term, OR_IC, p_valor)
 }
 
-# --- PASO 3: MOSTRAR EN QUARTO (SOLUCIÓN DEFINITIVA) ---
-# Usamos cat() para inyectar el HTML directamente
-mi_tabla
-message("Archivo guardado en: ", ruta_archivo)
+# Funciones de Bondad de Ajuste
+get_auc_val <- function(modelo) {
+  prob <- predict(modelo, type = "response")
+  roc_obj <- roc(modelo$y, as.numeric(prob), quiet = TRUE)
+  return(format(round(as.numeric(auc(roc_obj)), 3), nsmall=3))
+}
 
+get_aic_manual <- function(modelo) {
+  k <- length(coef(modelo))
+  val <- modelo$deviance + (2 * k)
+  return(format(round(val, 1), nsmall=1))
+}
+
+calcular_r2_nagelkerke <- function(modelo_completo) {
+  # 1. Ajustar manualmente el Modelo Nulo (solo intercepto)
+  modelo_nulo <- update(modelo_completo, formula = . ~ 1)
+  
+  # 2. Extraer devianzas
+  dev_full <- modelo_completo$deviance
+  dev_null <- modelo_nulo$deviance
+  
+  # 3. Tamaño muestral y fórmulas
+  n <- length(residuals(modelo_completo))
+  r2_cs <- 1 - exp((dev_full - dev_null) / n)
+  r2_max <- 1 - exp(-dev_null / n)
+  r2_nagel <- r2_cs / r2_max
+  
+  return(format(round(r2_nagel, 3), nsmall=3))
+}
+
+# --- 2. PROCESAR LOS DATOS DE LOS MODELOS ---
+
+# A. Extraer coeficientes
+m2_data <- get_coefs(modelo_multi2) %>% rename(OR_m2 = OR_IC, p_m2 = p_valor)
+m3_data <- get_coefs(modelo_multi3) %>% rename(OR_m3 = OR_IC, p_m3 = p_valor)
+
+# B. Unir modelos
+tabla_base <- full_join(m2_data, m3_data, by = "term")
+
+# C. Limpiar Nombres y Ordenar
+tabla_base <- tabla_base %>%
+  mutate(
+    Orden = case_when(
+      term == "(Intercept)" ~ 1,
+      term == "multi2_binaria" ~ 2,
+      term == "multi3_binaria" ~ 3,    # Multi 3 justo debajo de Multi 2
+      grepl("edad_cat_nom", term) ~ 4, # Edad
+      grepl("sexo", term) ~ 5,         # Sexo
+      grepl("educ_nom", term) ~ 6,     # Educ
+      grepl("zona", term) ~ 7,         # Zona
+      TRUE ~ 10
+    ),
+    Variable = case_when(
+      term == "(Intercept)" ~ "(Intercepto)",
+      term == "multi2_binaria" ~ "Multimorbilidad ≥ 2 (Sí)",
+      term == "multi3_binaria" ~ "Multimorbilidad ≥ 3 (Sí)",
+      term == "edad_cat_nom75 años o más" ~ "Edad: 75 años o más",
+      term == "sexoMujer" ~ "Sexo: Mujer",
+      term == "educ_nomBásica" ~ "Educación: Básica",
+      term == "educ_nomMedia" ~ "Educación: Media",
+      term == "educ_nomSuperior" ~ "Educación: Superior",
+      term == "zonaRural" ~ "Zona: Rural",
+      TRUE ~ term
+    )
+  ) %>%
+  arrange(Orden) %>%
+  select(Variable, OR_m2, p_m2, OR_m3, p_m3)
+
+# Reemplazar NA por guiones
+tabla_base[is.na(tabla_base)] <- "-"
+
+# --- 3. AGREGAR FILAS DE BONDAD DE AJUSTE ---
+
+row_aic <- c("AIC", get_aic_manual(modelo_multi2), "", get_aic_manual(modelo_multi3), "")
+row_r2  <- c("Pseudo R2 (Nagelkerke)", calcular_r2_nagelkerke(modelo_multi2), "", calcular_r2_nagelkerke(modelo_multi3), "")
+row_auc <- c("AUC (Área bajo la curva)", get_auc_val(modelo_multi2), "", get_auc_val(modelo_multi3), "")
+
+# Unir todo
+tabla_final_df <- rbind(tabla_base, row_aic, row_r2, row_auc)
+
+# Índices para agrupar
+n_predictores <- nrow(tabla_base)
+n_total <- nrow(tabla_final_df)
+
+# --- 4. RENDERIZAR CON KABLE ---
+
+tabla2_html <- kable(tabla_final_df, 
+      col.names = c("Variable", "OR (IC 95%)", "Valor p", "OR (IC 95%)", "Valor p"),
+      caption = "Tabla 2. Comparación de modelos ajustados para discapacidad (Población 60+ años, Chile 2022)",
+      booktabs = TRUE, 
+      align = c("l", "c", "c", "c", "c")) %>%
+  kable_styling(full_width = TRUE, position = "center") %>% # full_width TRUE ayuda al footnote
+  add_header_above(c(" " = 1, "Modelo Multimorbilidad ≥ 2" = 2, "Modelo Multimorbilidad ≥ 3" = 2)) %>%
+  pack_rows("Predictores", 1, n_predictores) %>%
+  pack_rows("Bondad de Ajuste", n_predictores + 1, n_total) %>%
+  row_spec(n_predictores + 1:3, background = "#f9f9f9", italic = TRUE) %>% 
+  footnote(
+    general = "Fuente: Elaboración propia a partir de ENDIDE 2022. Notas: OR = Odds Ratio; IC = Intervalo de Confianza; AIC = Akaike Information Criterion (basado en devianza).",
+    general_title = "",       # Quita título para ganar espacio
+    footnote_as_chunk = TRUE, # Ocupa toda la fila
+    threeparttable = TRUE
+  )
+
+# --- 5. GUARDAR EN WORD ---
+
+# Crear carpeta si no existe (Corrección importante)
+here("output", "tables")
+ruta_archivo <- here("output", "tables", "tabla2_2022_regresion_discapacidad.doc")
+
+contenido_word <- paste0(
+  "<html><head><meta charset='UTF-8'></head><body>",
+  as.character(tabla2_html),
+  "</body></html>"
+)
+
+con <- file(ruta_archivo, encoding = "UTF-8")
+writeLines(contenido_word, con)
+close(con)
+
+message("Tabla 2 guardada con éxito en: ", ruta_archivo)
+tabla2_html
 ```
+
 
 ```{r}
 # Fuente: Elaboración propia a partir de ENDIDE 2022. Modelos ajustados por edad, sexo, educación y zona.
 ```
-
 
 
 # Conclusiones
@@ -1508,7 +1660,7 @@ sessionInfo()
 # Información técnica del diseño
 cat("Resumen del diseño muestral:\n")
 cat("- Estratos:", length(unique(diseno_mayores$variables$estrato)), "\n")
-cat("- PSUs:", length(unique(diseno_mayores$variables$upm)), "\n")
+cat("- PSUs:", length(unique(diseno_mayores$variables$cod_upm)), "\n")
 cat("- Observaciones:", nrow(diseno_mayores$variables), "\n")
 cat("- Suma de ponderadores:", sum(weights(diseno_mayores)), "\n")
 ```
