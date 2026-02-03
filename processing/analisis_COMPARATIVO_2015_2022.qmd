@@ -1,0 +1,701 @@
+---
+title: "Cambios en la prevalencia de la limitación funcional en personas mayores en Chile entre 2015 y 2022"
+subtitle: "Según edad, sexo y multimorbilidad"
+author: "Florencia Catalina Trinidad Lastarria Cuevas"
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenidos"
+    number-sections: true
+    code-fold: show
+    code-tools: true
+    theme: cosmo
+    self-contained: true
+bibliography: ../input/bib/referencias.bib
+csl: ../input/bib/gaceta-sanitaria.csl
+editor: visual
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Resumen
+
+**Introducción:** \[Contextualizar el problema\]
+
+**Objetivo:** Evaluar los cambios en la prevalencia de la limitación funcional en personas mayores en Chile entre los años 2015 y 2022, y su asociación con la edad, el sexo y la multimorbilidad.
+
+**Métodos:** Estudio transversal analítico basado en II ENDISC 2015 (n=3.210.651) y ENDIDE 2022 (n=3.598.595). Análisis ajustado por diseño muestral complejo.
+
+**Resultados:** \[Completar tras análisis\]
+
+**Conclusiones:** \[Completar tras análisis\]
+
+**Palabras clave:** Limitación funcional, discapacidad, multimorbilidad, personas mayores, Chile, estudio transversal.
+
+------------------------------------------------------------------------
+
+# Introducción
+
+Los cambios epidemiológicos asociados al envejecimiento poblacional han transformado el contexto de la Salud Pública en Chile. El aumento de la esperanza de vida ha venido acompañado de un incremento del 21% en los años de vida ajustados por discapacidad (DALYs) entre 1990-2017, principalmente a expensas del aumento de los años vividos con discapacidad (YLDs), que representan el 50% de los DALYs [@MinisteriodeSalud2018].
+
+La principal carga de enfermedad en Chile está dada por las enfermedades no transmisibles, representando el 86% del total (2017). Los trastornos musculoesqueléticos, las enfermedades de los órganos de los sentidos y los desórdenes neurológicos representan el mayor peso de los años vividos con discapacidad en el país.
+
+Este estudio analiza los cambios en la prevalencia de limitación funcional en personas mayores entre 2015 y 2022, considerando su asociación con multimorbilidad y características sociodemográficas.
+
+## Objetivos
+
+### Objetivo General
+
+Evaluar los cambios en la prevalencia de la limitación funcional en personas mayores en Chile entre los años 2015 y 2022, y su asociación con la edad, el sexo y la multimorbilidad.
+
+### Objetivos Específicos
+
+1.  **Caracterizar sociodemográficamente** a la población de personas mayores con limitación funcional en Chile, utilizando los datos de las encuestas nacionales ENDISC 2015 y ENDIDE 2022.
+
+2.  **Describir la prevalencia de multimorbilidad** en personas mayores con limitación funcional, según edad y sexo, en ambos periodos.
+
+3.  **Comparar la prevalencia de limitación funcional** en personas mayores entre los años 2015 y 2022, considerando diferencias por edad y sexo.
+
+4.  **Analizar la asociación entre multimorbilidad y limitación funcional** en personas mayores, ajustando por variables sociodemográficas como edad y sexo, para los años 2015 y 2022.
+
+------------------------------------------------------------------------
+
+# Métodos
+
+## Diseño del estudio
+
+Estudio transversal analítico basado en análisis secundario de dos encuestas nacionales representativas: II Estudio Nacional de Discapacidad (ENDISC 2015) y Encuesta Nacional de Discapacidad y Dependencia (ENDIDE 2022).
+
+## Fuentes de datos
+
+-   **II ENDISC 2015:** Encuesta nacional representativa de la población chilena con **n=12.265 (corregir)** personas mayores de 60 años en la muestra, representando 3.210.651 personas con factores de expansión.
+
+-   **ENDIDE 2022:** Encuesta nacional representativa con n=9.171 personas mayores de 60 años en la muestra, representando 3.598.595 personas con factores de expansión.
+
+## Población de estudio
+
+Personas de 60 años y más residentes en Chile, incluidas en ambas encuestas. Se aplicaron los factores de expansión y diseño muestral incorporados en cada base de datos para asegurar comparabilidad y representatividad nacional.
+
+## Variables
+
+### Variable dependiente
+
+**Limitación funcional:** Definida operativamente según los criterios utilizados en cada encuesta, basados en la Clasificación Internacional del Funcionamiento, de la Discapacidad y de la Salud (CIF) de la OMS (2001). Categorizada como: Sin situación / En situación.
+
+### Variable independiente principal
+
+**Multimorbilidad:** Definida como la coexistencia de 2 o más condiciones crónicas. Se utilizaron dos definiciones: - Multi2: ≥2 enfermedades crónicas - Multi3: ≥3 enfermedades crónicas
+
+### Variables sociodemográficas
+
+-   **Edad:** Numérica continua (60-107 años) y categorizada (60-74 años / ≥75 años)
+-   **Sexo:** Hombre / Mujer
+-   **Nivel educacional:** Sin escolaridad / Básica / Media / Superior
+-   **Área de residencia:** Urbana / Rural
+
+## Análisis estadístico
+
+Todos los análisis se realizaron considerando el diseño muestral complejo (ponderadores, estratos y conglomerados) mediante el paquete `survey` de R [@Lumley2010].
+
+### Análisis descriptivo
+
+-   Variables categóricas: proporciones con intervalos de confianza 95%
+-   Variables numéricas: media, mediana, desviación estándar y rango intercuartílico
+-   Estimaciones ponderadas representativas de la población nacional
+
+### Análisis comparativo
+
+-   Test Z de diferencia de proporciones para comparar prevalencias entre años
+-   Test chi-cuadrado de Rao-Scott para asociaciones entre variables categóricas
+-   Test t de Student ajustado por diseño para comparación de medias
+-   Nivel de significancia: α = 0.05
+
+### Análisis multivariado
+
+-   Modelos de regresión logística binaria ajustados por diseño muestral
+-   Variable dependiente: Limitación funcional (Sí/No)
+-   Variable independiente principal: Multimorbilidad (≥2 EC)
+-   Ajuste por: edad, sexo, nivel educacional y área de residencia
+-   Evaluación de interacción año × multimorbilidad
+-   Reporte de Odds Ratios (OR) con IC 95%
+
+Todos los análisis se realizaron en R versión 4.5.2 [@RCoreTeam2023].
+
+------------------------------------------------------------------------
+
+# Resultados
+
+## Preparación de datos
+
+### Cargar librerías
+
+```{r setup, message=FALSE, warning=FALSE}
+# Cargar librerías
+library(arrow)
+library(here)
+library(tidyverse) # Manipulación de datos
+library(survey) # Análisis de encuestas complejas
+library(srvyr)
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(scales)
+library(gridExtra)
+library(broom)
+library(pROC)
+library(gtsummary)  # Tablas lindas para paper
+library(ggeffects)  # Gráficos de efectos marginales
+library(gt)         # Formato de tablas
+
+# Configuración
+options(survey.lonely.psu = "adjust")
+options(scipen = 999)
+```
+
+### Cargar datos
+
+```{r cargar-datos}
+# Cargar datos combinados
+df_merged <- read_parquet(here("input", "data", "proc", "df_merged.parquet"))
+
+cat("Datos cargados:\n")
+cat("Total observaciones:", nrow(df_merged), "\n")
+cat("Años:", unique(df_merged$anio), "\n\n")
+
+# Verificar variables clave
+cat("Variables disponibles:\n")
+glimpse(df_merged)
+```
+
+### Preparar datos
+
+```{r preparar-datos}
+# 1. Guardamos el conteo original antes de tocar nada
+n_inicial <- nrow(df_merged)
+
+# 2. Transformación y Limpieza
+datos_final <- df_merged %>%
+  mutate(
+    # --- A. VARIABLE TEMPORAL ---
+    anio = factor(anio, levels = c(2015, 2022)),
+
+    # --- B. VARIABLE DEPENDIENTE (Limitación Funcional) ---
+    disc_binaria = factor(
+      case_when(
+      as.character(disc_adulto) %in% c("En situación", "En situacion", "1") ~ "En situación", # Evento
+      as.character(disc_adulto) %in% c("Sin situación", "Sin situacion", "0") ~ "Sin situación", # Referencia
+      TRUE ~ NA_character_
+    ),
+    levels = c("Sin situación", "En situación"), # El primero es la referencia (0)
+    ),
+
+    # --- C. MULTIMORBILIDAD ---
+      multi2_factor = factor(
+      case_when(
+        as.character(multi2) %in% c("Sí", "1") ~ "Con Multimorbilidad",
+        as.character(multi2) %in% c("No", "0") ~ "Sin Multimorbilidad"
+      ),
+      levels = c("Sin Multimorbilidad", "Con Multimorbilidad") # Ref: Sin
+    ),
+    
+    multi3_factor = factor(
+      case_when(
+        as.character(multi3) %in% c("Sí", "1") ~ "Con Multimorbilidad",
+        as.character(multi3) %in% c("No", "0") ~ "Sin Multimorbilidad"
+      ),
+      levels = c("Sin Multimorbilidad", "Con Multimorbilidad")
+    ),
+
+    # --- D. COVARIABLES ---
+# EDAD
+    edad = as.numeric(edad),
+    # Categoría (Útil para tablas descriptivas)
+    edad_cat = cut(edad, 
+                   breaks = c(59, 74, 120), 
+                   labels = c("60-74 años", "≥75 años")),
+                   
+
+    # Sexo: Referencia Hombre
+    sexo = factor(as.character(sexo), 
+                  levels = c("Hombre", "Mujer"),  # Orden: 1° Hombre (Ref), 2° Mujer
+                  labels = c("Hombre", "Mujer")), # Etiquetas visibles
+  
+    # Zona: Referencia Urbano
+    zona = factor(as.character(zona), 
+                  levels = c("Urbano", "Rural"),  # Orden: 1° Urbano (Ref), 2° Rural
+                  labels = c("Urbano", "Rural")),
+
+    # EDUCACIÓN
+    # Ordenamos lógicamente: Sin < Básica < Media < Superior
+    educ = factor(as.character(educ),
+                  levels = c("Sin escolaridad", "Básica", "Media", "Superior")),
+
+    
+    # --- E. ENFERMEDADES (Conversión masiva de 0/1 a No/Sí) ---
+    across(
+      any_of(c("hta", "dm", "artr", "dep", "ans", "iam", "asma", "epoc", "ca", "dem", "erc", "hipot")),
+      ~ factor(., levels = c(0, 1), labels = c("No", "Sí"))
+    ),
+
+    # --- F. VARIABLES DE DISEÑO ---
+    fexp = as.numeric(fexp),
+    cod_upm = as.numeric(cod_upm),
+    estrato = as.numeric(estrato)
+  ) %>%
+  # --- FILTRO DE SEGURIDAD ---
+  filter(!is.na(fexp) & !is.na(cod_upm) & !is.na(estrato))
+
+# 3. LÓGICA DE AVISO (El print automático)
+n_final <- nrow(datos_final)
+n_eliminados <- n_inicial - n_final
+
+cat("\n=========================================\n")
+if (n_eliminados > 0) {
+  cat("⚠️  [ATENCIÓN] SE ACTIVÓ EL FILTRO DE SEGURIDAD ⚠️\n")
+  cat("Se eliminaron", n_eliminados, "filas por no tener variables de diseño (fexp, upm o estrato).\n")
+  cat("Base inicial:", n_inicial, "-> Base final:", n_final, "\n")
+} else {
+  cat("✅  [OK] NO SE ELIMINARON FILAS ✅\n")
+  cat("Tu base técnica está intacta. Todos los casos tienen diseño muestral.\n")
+}
+cat("=========================================\n")
+
+# 4. VERIFICACIÓN DE VARIABLES
+cat("\n=== REVISIÓN DE VARIABLES CLAVE ===\n")
+cat("\n1. Dependiente Discapacidad (Debe ser 0/1):\n")
+table(datos_final$disc_binaria, useNA = "always")
+
+cat("\n2. Multimorbilidad 2 (Debe ser Texto Factor):\n")
+table(datos_final$multi2_factor, useNA = "always")
+
+cat("\n3. Ejemplo Enfermedad - Diabetes (Debe ser No/Sí):\n")
+table(datos_final$dm, useNA = "always")
+```
+
+### Crear diseños muestrales
+
+```{r crear-disenos}
+# --- LINEA DE SEGURIDAD ---
+# Evita errores si un estrato se queda con un solo conglomerado
+options(survey.lonely.psu = "adjust")
+# 1. Definir el Diseño Madre (Con toda la población, 0 a 100+ años)
+# Usamos nest = TRUE porque los conglomerados (cod_upm) se repiten 
+# en nombre entre 2015 y 2022 pero son distintos.
+diseno_madre <- svydesign(
+  id = ~cod_upm, 
+  strata = ~estrato, 
+  weights = ~fexp, 
+  data = datos_final, 
+  nest = TRUE 
+)
+
+# 2. Crear el Sub-diseño para tu estudio (Mayores de 60)
+# La función subset mantiene la info de varianza del diseño madre
+# para calcular correctamente los errores estándar en el subgrupo.
+diseno_60mas <- subset(diseno_madre, edad >= 60)
+
+# --- VERIFICACIÓN ---
+cat("=== RESUMEN DEL DISEÑO POOLED (60+ AÑOS) ===\n")
+cat("N Muestral (n real):", nrow(diseno_60mas), "\n")
+cat("N Poblacional (estimado):", format(sum(weights(diseno_60mas)), big.mark=","), "\n")
+
+# Verificar que tenemos ambos años dentro
+cat("\nDistribución por año (Muestral sin ponderar):\n")
+table(diseno_60mas$variables$anio)
+```
+
+### Revisar valores perdidos
+
+```{r revisar-nas}
+# 1. TABLA DETALLADA (Tu código, mejorado con las variables finales)
+# OJO: Asegúrate de usar los nombres de tus variables transformadas 
+# (ej: usa 'disc_binaria' en vez de 'disc_adulto' si esa es la que usarás en la regresión)
+tabla_nas <- diseno_60mas$variables %>%
+  select(edad, sexo, zona, disc_adulto, multi2, multi3, educ) %>% 
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  t() %>% 
+  as.data.frame()
+
+colnames(tabla_nas) <- "N_Perdidos"
+tabla_nas$Porcentaje_NA <- (tabla_nas$N_Perdidos / nrow(diseno_60mas)) * 100
+
+# Imprimir tabla bonita
+kable(tabla_nas, digits = 2, caption = "Conteo de Valores Perdidos por Variable (Submuestra 60+)") %>%
+  kable_styling(full_width = F, bootstrap_options = c("striped", "hover"))
+
+# ---------------------------------------------------------
+
+# 2. EL DATO PARA EL FLOWCHART (Casos completos)
+# Esto calcula cuántas personas se eliminan en total al juntar todas esas variables
+n_total_inicial <- nrow(diseno_60mas)
+n_casos_completos <- diseno_60mas$variables %>%
+  select(edad, sexo, zona, disc_adulto, multi2, multi3, educ) %>%
+  complete.cases() %>%
+  sum()
+
+n_excluidos_total <- n_total_inicial - n_casos_completos
+
+cat("\n=== RESUMEN PARA EL DIAGRAMA DE FLUJO ===\n")
+cat("Total Inicial (60+):", n_total_inicial, "\n")
+cat("Excluidos (Tienen al menos 1 NA):", n_excluidos_total, "\n")
+cat("Muestra Analítica Final:", n_casos_completos, "\n")
+```
+```{r verificacion-final}
+# Verificación final con las variables EXACTAS del modelo (las transformadas)
+sum(is.na(diseno_60mas$variables$disc_binaria)) 
+sum(is.na(diseno_60mas$variables$multi2_factor))
+sum(is.na(diseno_60mas$variables$multi3_factor))
+```
+```{r comparacion-media-mediana-edad}
+# 1. VISUALIZACIÓN (Histograma Ponderado)
+# Esto te mostrará la forma real de la curva considerando los pesos
+svyhist(~edad, diseno_60mas, 
+        main = "Distribución de Edad (Ponderada)", 
+        col = "skyblue", 
+        xlab = "Edad",
+        freq = FALSE) # freq=FALSE para ver densidad
+
+# Añadimos una curva normal teórica encima para comparar visualmente
+curve(dnorm(x, mean = svymean(~edad, diseno_60mas, na.rm=TRUE)[1], 
+            sd = sqrt(svyvar(~edad, diseno_60mas, na.rm=TRUE)[1])), 
+      add = TRUE, col = "red", lwd = 2)
+legend("topright", legend = c("Datos reales", "Curva Normal Teórica"), 
+       col = c("skyblue", "red"), lwd = c(10, 2))
+
+# 2. COMPARACIÓN NUMÉRICA (Media vs Mediana)
+cat("\n=== COMPARACIÓN MEDIA vs MEDIANA ===\n")
+
+# Calcular Media
+media <- svymean(~edad, diseno_60mas, na.rm = TRUE)
+print(media)
+
+# Calcular Mediana y Cuartiles (IQR)
+mediana <- svyquantile(~edad, diseno_60mas, quantiles = c(0.25, 0.5, 0.75), na.rm = TRUE)
+print(mediana)
+
+# 3. VEREDICTO RÁPIDO CON GTSUMMARY
+# Esto genera una tablita sucia solo para que veas los dos números juntos
+diseno_60mas %>%
+  tbl_svysummary(
+    include = c(edad),
+    statistic = list(edad ~ "Media: {mean} | Mediana: {median}"),
+    digits = list(edad ~ 1)
+  )
+```
+
+
+------------------------------------------------------------------------
+
+## OBJETIVO 1: Caracterización sociodemográfica de personas mayores con limitación funcional
+
+### Características generales por año (con multimorbilidad agregada)
+
+```{r tablas-caracterizacion-es}
+# 1. RESETEO TOTAL (Obligatorio para limpiar conflictos previos)
+reset_gtsummary_theme()
+theme_gtsummary_language("es", decimal.mark = ",", big.mark = ".")
+
+# 2. DEFINIR FUNCIÓN DE ESTILO (Fuera del pipe para asegurar pureza)
+# Esta función fuerza a que NO haya sufijo (ni %)
+estilo_limpio <- function(x) {
+  style_number(x, digits = 1, scale = 100, suffix = "")
+}
+
+# =============================================================================
+# TABLA 1: SOCIODEMOGRÁFICA (LIMPIA)
+# =============================================================================
+tabla1_es <- diseno_60mas %>%
+  tbl_svysummary(
+    by = anio,
+    include = c(sexo, edad, edad_cat, educ, zona, disc_binaria, multi2_factor, multi3_factor),
+    label = list(
+      sexo ~ "Sexo, n (%) [IC 95%]",
+      edad ~ "Edad, media (DE)",
+      edad_cat ~ "Grupo Etario, n (%) [IC 95%]",
+      educ ~ "Nivel Educacional, n (%) [IC 95%]",
+      zona ~ "Zona de Residencia, n (%) [IC 95%]",
+      disc_binaria ~ "Discapacidad, n (%) [IC 95%]",
+      multi2_factor ~ "Multimorbilidad (≥2), n (%) [IC 95%]",
+      multi3_factor ~ "Multimorbilidad (≥3), n (%) [IC 95%]"
+    ),
+statistic = list(
+      edad ~ "{mean} ({sd})",
+      # Aquí definimos el formato base: N (Porcentaje)
+      # El Intervalo de Confianza se agregará automáticamente después
+      all_categorical() ~ "{n_unweighted} ({p})" 
+    ),
+    
+    # --- 1. SOLUCIÓN PARA VER EL DETALLE ---
+    # Al poner "categorical", obligamos a R a mostrar "Sin situación" y "En situación"
+    type = list(disc_binaria ~ "categorical"),
+    digits = list(all_continuous() ~ 1, all_categorical() ~ c(0, 1)),
+    missing = "no"
+  ) %>%
+  
+  # --- 2. SOLUCIÓN PARA INTERVALOS DE CONFIANZA ---
+  add_ci(
+    # pattern: define cómo se ve. {stat} es lo de arriba, {ci} es el intervalo.
+    include = all_categorical(),
+    pattern = "{stat} [{ci}]",
+    style_fun = list(all_categorical() ~ estilo_limpio
+    )
+  ) %>%
+  
+  # --- 3. VALORES P ---
+  add_p() %>%
+  add_overall() %>%
+  
+  bold_labels() %>%
+  
+  # --- AQUÍ ESTÁ LA SOLUCIÓN A TUS ENCABEZADOS ---
+  modify_header(
+    label = "**Variable**", 
+    # stat_1 es la primera columna (2015), stat_2 la segunda (2022).
+    # {n} aquí representa el N total de la columna (sin ponderar).
+    stat_1 = "**ENDISC 2015**<br>N = {n}",  
+    stat_2 = "**ENDIDE 2022**<br>N = {n}",
+    stat_0 = "**Total**<br>N = {n}",
+    p.value = "**Valor p**"
+  ) %>%
+  
+  # Borramos notas automáticas y ponemos la tuya personalizada
+ modify_table_body(
+    ~ .x %>% mutate(stat_label = NA_character_)
+  ) %>%
+  modify_footnote(everything() ~ NA) %>% # Borra TODAS las notas automáticas (incluyendo CI = ...)
+  modify_footnote(
+    p.value ~ "Valor p: Chi-cuadrado de Rao-Scott (Categóricas) y T de Wald (Continua)."
+  ) %>%
+  
+  # Título y Fuente
+  modify_caption("**Tabla 1. Características de las personas mayores (60+ años) en las encuestas ENDISC 2015 y ENDIDE 2022.**") %>%
+  as_gt() %>% 
+  gt::tab_source_note(source_note = "Fuente: Elaboración propia en base a ENDISC 2015 y ENDIDE 2022.")
+# Imprimir
+tabla1_es
+```
+
+```{r guardar-tabla1}
+# --- GUARDAR TABLA 1 ---
+# Si tu objeto se llama 'tabla1_es' (el que convertiste con as_gt en el paso anterior)
+here("output", "tables")
+
+# 2. Guardar la Tabla 1
+tabla1_es %>%
+  gtsave(filename = here("output", "tables", "tabla1_sociodemografica.docx"))
+
+```
+### Características generales por año (con multimorbilidad desagregada)
+
+```{r tablas-enfermedades-es}
+# 1. CONFIGURACIÓN
+reset_gtsummary_theme()
+theme_gtsummary_language("es", decimal.mark = ",", big.mark = ".")
+
+estilo_limpio <- function(x) {
+  style_number(x, digits = 1, scale = 100, suffix = "")
+}
+
+# 2. DEFINICIÓN DE VARIABLES
+vars_enf <- c("hta", "dm", "artr", "dep", "ans", "iam", "asma", "epoc", "ca", "dem", "erc", "hipot")
+
+# 3. GENERAR TABLA
+tabla1_enf_es <- diseno_60mas %>%
+  tbl_svysummary(
+    by = anio,
+    
+    include = c(
+      sexo, edad, edad_cat, educ, zona, disc_binaria, multi2_factor, multi3_factor,
+      all_of(vars_enf)
+    ),
+    
+    label = list(
+      # Socio
+      sexo ~ "Sexo, n (%) [IC 95%]",
+      edad ~ "Edad, media (DE)", 
+      edad_cat ~ "Grupo Etario, n (%) [IC 95%]",
+      educ ~ "Nivel Educacional, n (%) [IC 95%]",
+      zona ~ "Zona de Residencia, n (%) [IC 95%]",
+      disc_binaria ~ "Discapacidad, n (%) [IC 95%]",
+      multi2_factor ~ "Multimorbilidad (≥2), n (%) [IC 95%]",
+      multi3_factor ~ "Multimorbilidad (≥3), n (%) [IC 95%]",
+      
+      # Enfermedades
+      hta   ~ "Hipertensión Arterial, n (%) [IC 95%]", 
+      dm    ~ "Diabetes Mellitus, n (%) [IC 95%]", 
+      artr  ~ "Artritis / Artrosis, n (%) [IC 95%]",
+      dep   ~ "Depresión, n (%) [IC 95%]", 
+      ans   ~ "Ansiedad, n (%) [IC 95%]", 
+      iam   ~ "Enf. Cardíaca, n (%) [IC 95%]",
+      asma  ~ "Asma, n (%) [IC 95%]", 
+      epoc  ~ "EPOC, n (%) [IC 95%]", 
+      ca    ~ "Cáncer, n (%) [IC 95%]",
+      dem   ~ "Demencia, n (%) [IC 95%]", 
+      erc   ~ "Enfermedad Renal Crónica, n (%) [IC 95%]", 
+      hipot ~ "Enf. Tiroídea, n (%) [IC 95%]"
+    ),
+    
+    # --- LA CORRECCIÓN CLAVE ---
+    type = list(
+      edad ~ "continuous",      # 1. Forzamos a Edad a ser continua
+      -edad ~ "categorical"     # 2. Todo lo que NO sea edad, es categórico
+    ),
+    
+    statistic = list(
+      edad ~ "{mean} ({sd})",
+      all_categorical() ~ "{n_unweighted} ({p})"
+    ),
+    
+    digits = list(all_continuous() ~ 1, all_categorical() ~ c(0, 1)),
+    missing = "no"
+  ) %>%
+  
+  # Intervalos de confianza (Excluyendo edad explícitamente)
+  add_ci(
+    include = -edad, 
+    pattern = "{stat} [{ci}]",
+    style_fun = list(all_categorical() ~ estilo_limpio)
+  ) %>%
+  
+  add_p() %>%
+  add_overall() %>%
+  bold_labels() %>%
+  
+  modify_header(
+    label = "**Variable**",
+    stat_1 = "**ENDISC 2015**<br>N = {n}",  
+    stat_2 = "**ENDIDE 2022**<br>N = {n}",
+    stat_0 = "**Total**<br>N = {n}",
+    p.value = "**Valor p**"
+  ) %>%
+  
+  # Notas y Fuente
+  modify_footnote(everything() ~ NA) %>% 
+  modify_footnote(p.value ~ "Valor p: Chi-cuadrado de Rao-Scott (Categóricas) y T de Wald (Continua).") %>%
+  modify_caption("**Tabla 1. Características de las personas mayores (60+ años) en las encuestas ENDISC 2015 y ENDIDE 2022.**") %>%
+  
+  as_gt() %>% 
+  gt::tab_source_note(source_note = "Fuente: Elaboración propia en base a ENDISC 2015 y ENDIDE 2022.")
+
+# Imprimir
+tabla1_enf_es
+```
+```{r guardar-tabla1-enfermedades}
+# --- GUARDAR TABLA 1 ---
+# Si tu objeto se llama 'tabla1_es' (el que convertiste con as_gt en el paso anterior)
+here("output", "tables")
+
+# 2. Guardar la Tabla 1
+tabla1_enf_es %>%
+  gtsave(filename = here("output", "tables", "tabla1_sociodemografica_enf.docx"))
+
+```
+
+------------------------------------------------------------------------
+
+## OBJETIVO 2: Prevalencia de multimorbilidad en personas con limitación funcional
+
+### Prevalencia de multimorbilidad según limitación funcional
+
+
+
+### Prevalencia de multimorbilidad según edad y sexo EN personas con LF
+
+------------------------------------------------------------------------
+
+## OBJETIVO 3: Comparación de prevalencia de limitación funcional entre 2015 y 2022
+
+### Prevalencia general de limitación funcional
+
+
+### Test de diferencia de prevalencias
+
+
+
+### Prevalencia por edad
+
+
+
+### Prevalencia por sexo
+
+### Prevalencia estratificada (edad y sexo)
+
+
+### Visualización de cambios temporales
+
+
+------------------------------------------------------------------------
+
+## OBJETIVO 4: Asociación entre multimorbilidad y limitación funcional
+
+### Modelos de regresión logística por año
+
+
+### Tabla comparativa de ORs
+
+### Bondad de ajuste de modelos
+
+
+### Evaluación de interacción año × multimorbilidad
+
+
+
+### Visualización de ORs por año
+
+
+------------------------------------------------------------------------
+
+# Discusión
+
+\[Interpretar resultados considerando:\]
+
+1.  **Cambios en prevalencia:** ¿Aumentó, disminuyó o se mantuvo estable?
+2.  **Diferencias por edad y sexo:** ¿Qué grupos se vieron más afectados?
+3.  **Rol de multimorbilidad:** ¿Se mantiene como factor de riesgo en ambos años?
+4.  **Implicancias de salud pública:** Necesidades de servicios de rehabilitación
+5.  **Limitaciones:** Diseños transversales, cambios metodológicos entre encuestas
+6.  **Fortalezas:** Representatividad nacional, ajuste por diseño complejo
+
+------------------------------------------------------------------------
+
+# Conclusiones
+
+\[Resumir hallazgos principales según cada objetivo\]
+
+1.  **Caracterización:** \[Completar\]
+2.  **Multimorbilidad:** \[Completar\]
+3.  **Cambios temporales:** \[Completar\]
+4.  **Asociación multimorbilidad-LF:** \[Completar\]
+
+------------------------------------------------------------------------
+
+# Referencias
+
+::: {#refs}
+:::
+
+------------------------------------------------------------------------
+
+# Anexos
+
+## Anexo A: Información de sesión
+
+```{r info-sesion}
+sessionInfo()
+```
+
+## Anexo B: Verificación de diseños muestrales
+
+```{r verificacion-disenos}
+cat("=== DISEÑO 2015 ===\n")
+cat("Estratos:", length(unique(diseno_2015$variables$estrato)), "\n")
+cat("PSUs:", length(unique(diseno_2015$variables$cod_upm)), "\n")
+cat("Grados de libertad:", degf(diseno_2015), "\n\n")
+
+cat("=== DISEÑO 2022 ===\n")
+cat("Estratos:", length(unique(diseno_2022$variables$estrato)), "\n")
+cat("PSUs:", length(unique(diseno_2022$variables$cod_upm)), "\n")
+cat("Grados de libertad:", degf(diseno_2022), "\n")
+```

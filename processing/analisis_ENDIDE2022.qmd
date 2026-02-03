@@ -1218,6 +1218,56 @@ kable(or_tabla_multi3,
   kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
+sapply(diseno_modelo1$variables, class)
+```{r regresion-logistica-survey-multi3-inter}
+# Crear variables binarias Y convertir ordinales a nominales para dummies
+diseno_modelo2 <- update(diseno_mayores, 
+                        disc_binaria = as.numeric(disc_adulto == "En situación"),
+                        multi3_binaria = as.numeric(multi3 == "Sí"),
+                        # Convertir ordinales a factores nominales (para dummies)
+                        edad_cat_nom = factor(edad_cat, ordered = FALSE),
+                        educ_nom = factor(educ, ordered = FALSE))
+
+cat("Variables para el modelo creadas\n")
+cat("disc_binaria: 0=Sin situación, 1=En situación\n")
+cat("multi3_binaria: 0=No, 1=Sí\n")
+cat("edad_cat_nom: factor nominal (referencia: 60 a 74 años)\n")
+cat("educ_nom: factor nominal (referencia: Sin escolaridad)\n")
+cat("multi3_binaria: 0=No, 1=Sí\n")
+
+# Modelo de regresión logística
+# VD: disc_binaria (limitación funcional)
+# VI principal: multi3_binaria (multimorbilidad 2+)
+# Ajuste: edad_cat, sexo, educ, zona
+
+# Modelo con dummies en vez de contrastes polinómicos
+modelo_interaccion2 <- svyglm(
+  disc_binaria ~ multi3_binaria * edad_cat_nom + sexo + educ_nom + zona,
+  design = diseno_modelo2,
+  family = quasibinomial()
+)
+
+summary(modelo_multi3)
+# Tabla de Odds Ratios con IC 95%
+library(broom)
+
+or_tabla_multi3 <- tidy(modelo_multi3, 
+                        exponentiate = TRUE,
+                        conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high, p.value)
+
+kable(or_tabla_multi3,
+      caption = "Odds Ratios de limitación funcional - Modelo con Multimorbilidad 3+",
+      digits = 3,
+      col.names = c("Variable", "OR", "IC 95% inferior", "IC 95% superior", "p-valor")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Evaluar si la interacción es significativa (Anova tipo III para encuestas)
+library(car)
+Anova(modelo_interaccion2, test = "F") 
+# Si el término 'multi2_binaria:edad_cat_nom' tiene p < 0.05, REPORTALO.
+```
+
 ### Pruebas de bondad de ajuste
 
 ```{r bondad-ajuste}
