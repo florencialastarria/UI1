@@ -1,7 +1,7 @@
 ---
 title: "Cambios en la prevalencia de la limitación funcional en personas mayores en Chile entre 2015 y 2022"
 subtitle: "Según edad, sexo y multimorbilidad"
-author: "Florencia Catalina Trinidad Lastarria Cuevas"
+author: "Florencia Lastarria Cuevas"
 date: "`r Sys.Date()`"
 format: 
   html:
@@ -114,12 +114,12 @@ Todos los análisis se realizaron considerando el diseño muestral complejo (pon
 
 ### Análisis multivariado
 
--   Modelos de regresión logística binaria ajustados por diseño muestral
+-   Modelos Logísticos Ponderados con estimación posterior de Razones de Prevalencia (PR) mediante márgenes predictivos
 -   Variable dependiente: Limitación funcional (Sí/No)
 -   Variable independiente principal: Multimorbilidad (≥2 EC)
 -   Ajuste por: edad, sexo, nivel educacional y área de residencia
 -   Evaluación de interacción año × multimorbilidad
--   Reporte de Odds Ratios (OR) con IC 95%
+-   Reporte de Odds Ratios (OR) con IC 95% - ***Aunque inicialmente se planteó el uso de OR, dada la alta prevalencia de limitación funcional en esta población, el OR tiende a sobreestimar la fuerza de asociación. Siguiendo la metodología de referencia (Landré et al.[@Landré]), se optó por estimar Razones de Prevalencia (PR) y Diferencias de Prevalencia mediante márgenes predictivos, que ofrecen una interpretación más precisa en términos de salud pública***
 
 Todos los análisis se realizaron en R versión 4.5.2 [@RCoreTeam2023].
 
@@ -148,6 +148,7 @@ library(pROC)
 library(gtsummary)  # Tablas lindas para paper
 library(ggeffects)  # Gráficos de efectos marginales
 library(gt)         # Formato de tablas
+library(marginaleffects) # Efectos marginales
 
 # Configuración
 options(survey.lonely.psu = "adjust")
@@ -172,32 +173,37 @@ glimpse(df_merged)
 ### Preparar datos
 
 ```{r preparar-datos}
-# 1. Guardamos el conteo original antes de tocar nada
+# 1. Guardamos el conteo original
 n_inicial <- nrow(df_merged)
 
-# 2. Transformación y Limpieza
+# 2. Transformación Maestra
 datos_final <- df_merged %>%
   mutate(
     # --- A. VARIABLE TEMPORAL ---
     anio = factor(anio, levels = c(2015, 2022)),
 
-    # --- B. VARIABLE DEPENDIENTE (Limitación Funcional) ---
+    # --- B. VARIABLE DEPENDIENTE (Limitación) ---
+    # 1. Versión Factor (Para tablas y gráficos bonitos)
     disc_binaria = factor(
       case_when(
-      as.character(disc_adulto) %in% c("En situación", "En situacion", "1") ~ "En situación", # Evento
-      as.character(disc_adulto) %in% c("Sin situación", "Sin situacion", "0") ~ "Sin situación", # Referencia
-      TRUE ~ NA_character_
+        as.character(disc_adulto) %in% c("En situación", "En situacion", "1") ~ "En situación", 
+        as.character(disc_adulto) %in% c("Sin situación", "Sin situacion", "0") ~ "Sin situación", 
+        TRUE ~ NA_character_
+      ),
+      levels = c("Sin situación", "En situación")
     ),
-    levels = c("Sin situación", "En situación"), # El primero es la referencia (0)
-    ),
+    
+    # 2. Versión Numérica 0/1 (NECESARIA para Modelos Matemáticos) <<< AGREGADO
+    lim_num = ifelse(disc_binaria == "En situación", 1, 0),
 
     # --- C. MULTIMORBILIDAD ---
-      multi2_factor = factor(
+    # 1. Versiones Factor (Para tablas)
+    multi2_factor = factor(
       case_when(
         as.character(multi2) %in% c("Sí", "1") ~ "Con Multimorbilidad",
         as.character(multi2) %in% c("No", "0") ~ "Sin Multimorbilidad"
       ),
-      levels = c("Sin Multimorbilidad", "Con Multimorbilidad") # Ref: Sin
+      levels = c("Sin Multimorbilidad", "Con Multimorbilidad")
     ),
     
     multi3_factor = factor(
@@ -207,33 +213,21 @@ datos_final <- df_merged %>%
       ),
       levels = c("Sin Multimorbilidad", "Con Multimorbilidad")
     ),
+    
+    # 2. Versiones Numéricas 0/1 (NECESARIAS para Modelos Matemáticos) <<< AGREGADO
+    # Usamos la lógica de tus variables originales multi2/multi3
+    multi2_num = ifelse(as.character(multi2) %in% c("Sí", "1"), 1, 0),
+    multi3_num = ifelse(as.character(multi3) %in% c("Sí", "1"), 1, 0),
 
     # --- D. COVARIABLES ---
-# EDAD
     edad = as.numeric(edad),
-    # Categoría (Útil para tablas descriptivas)
-    edad_cat = cut(edad, 
-                   breaks = c(59, 74, 120), 
-                   labels = c("60-74 años", "≥75 años")),
-                   
-
-    # Sexo: Referencia Hombre
-    sexo = factor(as.character(sexo), 
-                  levels = c("Hombre", "Mujer"),  # Orden: 1° Hombre (Ref), 2° Mujer
-                  labels = c("Hombre", "Mujer")), # Etiquetas visibles
-  
-    # Zona: Referencia Urbano
-    zona = factor(as.character(zona), 
-                  levels = c("Urbano", "Rural"),  # Orden: 1° Urbano (Ref), 2° Rural
-                  labels = c("Urbano", "Rural")),
-
-    # EDUCACIÓN
-    # Ordenamos lógicamente: Sin < Básica < Media < Superior
-    educ = factor(as.character(educ),
-                  levels = c("Sin escolaridad", "Básica", "Media", "Superior")),
-
+    edad_cat = cut(edad, breaks = c(59, 74, 120), labels = c("60-74 años", "≥75 años")),
     
-    # --- E. ENFERMEDADES (Conversión masiva de 0/1 a No/Sí) ---
+    sexo = factor(as.character(sexo), levels = c("Hombre", "Mujer"), labels = c("Hombre", "Mujer")),
+    zona = factor(as.character(zona), levels = c("Urbano", "Rural"), labels = c("Urbano", "Rural")),
+    educ = factor(as.character(educ), levels = c("Sin escolaridad", "Básica", "Media", "Superior")),
+
+    # --- E. ENFERMEDADES (0/1 a No/Sí) ---
     across(
       any_of(c("hta", "dm", "artr", "dep", "ans", "iam", "asma", "epoc", "ca", "dem", "erc", "hipot")),
       ~ factor(., levels = c(0, 1), labels = c("No", "Sí"))
@@ -244,45 +238,24 @@ datos_final <- df_merged %>%
     cod_upm = as.numeric(cod_upm),
     estrato = as.numeric(estrato)
   ) %>%
-  # --- FILTRO DE SEGURIDAD ---
+  # Filtro de seguridad (eliminar casos sin ponderador)
   filter(!is.na(fexp) & !is.na(cod_upm) & !is.na(estrato))
 
-# 3. LÓGICA DE AVISO (El print automático)
-n_final <- nrow(datos_final)
-n_eliminados <- n_inicial - n_final
-
-cat("\n=========================================\n")
-if (n_eliminados > 0) {
-  cat("⚠️  [ATENCIÓN] SE ACTIVÓ EL FILTRO DE SEGURIDAD ⚠️\n")
-  cat("Se eliminaron", n_eliminados, "filas por no tener variables de diseño (fexp, upm o estrato).\n")
-  cat("Base inicial:", n_inicial, "-> Base final:", n_final, "\n")
-} else {
-  cat("✅  [OK] NO SE ELIMINARON FILAS ✅\n")
-  cat("Tu base técnica está intacta. Todos los casos tienen diseño muestral.\n")
-}
-cat("=========================================\n")
-
-# 4. VERIFICACIÓN DE VARIABLES
-cat("\n=== REVISIÓN DE VARIABLES CLAVE ===\n")
-cat("\n1. Dependiente Discapacidad (Debe ser 0/1):\n")
-table(datos_final$disc_binaria, useNA = "always")
-
-cat("\n2. Multimorbilidad 2 (Debe ser Texto Factor):\n")
-table(datos_final$multi2_factor, useNA = "always")
-
-cat("\n3. Ejemplo Enfermedad - Diabetes (Debe ser No/Sí):\n")
-table(datos_final$dm, useNA = "always")
+# 3. Validaciones
+cat("Base lista. Filas finales:", nrow(datos_final), "\n")
+cat("Verificación de variables numéricas creadas (Medias):\n")
+cat("- Limitación (lim_num):", mean(datos_final$lim_num, na.rm=T), "\n")
+cat("- Multi 2+ (multi2_num):", mean(datos_final$multi2_num, na.rm=T), "\n")
 ```
 
 ### Crear diseños muestrales
 
 ```{r crear-disenos}
-# --- LINEA DE SEGURIDAD ---
-# Evita errores si un estrato se queda con un solo conglomerado
+# Ajuste para estratos con un solo conglomerado (Evita errores técnicos)
 options(survey.lonely.psu = "adjust")
-# 1. Definir el Diseño Madre (Con toda la población, 0 a 100+ años)
-# Usamos nest = TRUE porque los conglomerados (cod_upm) se repiten 
-# en nombre entre 2015 y 2022 pero son distintos.
+
+# A. Diseño Madre (Toda la encuesta)
+# Toma 'datos_final' que YA TIENE lim_num, multi2_num, etc.
 diseno_madre <- svydesign(
   id = ~cod_upm, 
   strata = ~estrato, 
@@ -291,19 +264,12 @@ diseno_madre <- svydesign(
   nest = TRUE 
 )
 
-# 2. Crear el Sub-diseño para tu estudio (Mayores de 60)
-# La función subset mantiene la info de varianza del diseño madre
-# para calcular correctamente los errores estándar en el subgrupo.
+# B. Diseño de Estudio (Filtro Población Objetivo: 60 años o más)
 diseno_60mas <- subset(diseno_madre, edad >= 60)
 
-# --- VERIFICACIÓN ---
-cat("=== RESUMEN DEL DISEÑO POOLED (60+ AÑOS) ===\n")
-cat("N Muestral (n real):", nrow(diseno_60mas), "\n")
-cat("N Poblacional (estimado):", format(sum(weights(diseno_60mas)), big.mark=","), "\n")
-
-# Verificar que tenemos ambos años dentro
-cat("\nDistribución por año (Muestral sin ponderar):\n")
-table(diseno_60mas$variables$anio)
+# Verificación Final
+cat("Diseño creado exitosamente.\n")
+cat("Población estimada representada:", format(sum(weights(diseno_60mas)), big.mark=","))
 ```
 
 ### Revisar valores perdidos
@@ -348,41 +314,43 @@ sum(is.na(diseno_60mas$variables$disc_binaria))
 sum(is.na(diseno_60mas$variables$multi2_factor))
 sum(is.na(diseno_60mas$variables$multi3_factor))
 ```
+
+### Analisis uni y bivariado  
 ```{r comparacion-media-mediana-edad}
-# 1. VISUALIZACIÓN (Histograma Ponderado)
-# Esto te mostrará la forma real de la curva considerando los pesos
-svyhist(~edad, diseno_60mas, 
-        main = "Distribución de Edad (Ponderada)", 
-        col = "skyblue", 
-        xlab = "Edad",
-        freq = FALSE) # freq=FALSE para ver densidad
+# Paso previo: Extraer datos y pesos para graficar con ggplot
+# (ggplot necesita un dataframe, pero usaremos la columna de pesos del diseño)
+datos_grafico <- diseno_60mas$variables
+datos_grafico$peso_final <- weights(diseno_60mas)
 
-# Añadimos una curva normal teórica encima para comparar visualmente
-curve(dnorm(x, mean = svymean(~edad, diseno_60mas, na.rm=TRUE)[1], 
-            sd = sqrt(svyvar(~edad, diseno_60mas, na.rm=TRUE)[1])), 
-      add = TRUE, col = "red", lwd = 2)
-legend("topright", legend = c("Datos reales", "Curva Normal Teórica"), 
-       col = c("skyblue", "red"), lwd = c(10, 2))
+# --- GRÁFICO 1: HISTOGRAMA Y DENSIDAD COMPARATIVA ---
+grafico_hist <- ggplot(datos_grafico, aes(x = edad, weight = peso_final, fill = anio)) +
+  # Histograma de fondo
+  geom_histogram(aes(y = ..density..), binwidth = 2, alpha = 0.4, position = "identity", color = "white") +
+  # Curva de densidad suave
+  geom_density(alpha = 0.2, size = 1) +
+  # Facet_wrap para separar los paneles por año
+  facet_wrap(~anio) +
+  # Líneas de referencia (Media y Mediana se calculan visualmente aproximadas aquí, 
+  # pero los números exactos van en la tabla abajo)
+  scale_fill_manual(values = c("2015" = "#E69F00", "2022" = "#56B4E9")) +
+  labs(title = "Distribución de Edad: 2015 vs 2022",
+       subtitle = "Histograma ponderado con curva de densidad",
+       x = "Edad", y = "Densidad") +
+  theme_minimal()
 
-# 2. COMPARACIÓN NUMÉRICA (Media vs Mediana)
-cat("\n=== COMPARACIÓN MEDIA vs MEDIANA ===\n")
+# --- GRÁFICO 2: BOXPLOT (PARA VER OUTLIERS) ---
+grafico_box <- ggplot(datos_grafico, aes(x = anio, y = edad, weight = peso_final, fill = anio)) +
+  geom_boxplot(alpha = 0.7, outlier.colour = "red", outlier.shape = 8, outlier.size = 3) +
+  scale_fill_manual(values = c("2015" = "#E69F00", "2022" = "#56B4E9")) +
+  labs(title = "Detección de Valores Extremos (Outliers)",
+       subtitle = "Los puntos rojos indican edades extremas estadísticas",
+       x = "Encuesta", y = "Edad") +
+  theme_minimal() +
+  theme(legend.position = "none")
 
-# Calcular Media
-media <- svymean(~edad, diseno_60mas, na.rm = TRUE)
-print(media)
-
-# Calcular Mediana y Cuartiles (IQR)
-mediana <- svyquantile(~edad, diseno_60mas, quantiles = c(0.25, 0.5, 0.75), na.rm = TRUE)
-print(mediana)
-
-# 3. VEREDICTO RÁPIDO CON GTSUMMARY
-# Esto genera una tablita sucia solo para que veas los dos números juntos
-diseno_60mas %>%
-  tbl_svysummary(
-    include = c(edad),
-    statistic = list(edad ~ "Media: {mean} | Mediana: {median}"),
-    digits = list(edad ~ 1)
-  )
+# Mostrar gráficos
+print(grafico_hist)
+print(grafico_box)
 ```
 
 
@@ -392,204 +360,233 @@ diseno_60mas %>%
 
 ### Características generales por año (con multimorbilidad agregada)
 
-```{r tablas-caracterizacion-es}
-# 1. RESETEO TOTAL (Obligatorio para limpiar conflictos previos)
+```{r tablas-caracterizacion-sexo-es}
+# 1. RESETEO Y ESTILOS
 reset_gtsummary_theme()
 theme_gtsummary_language("es", decimal.mark = ",", big.mark = ".")
 
-# 2. DEFINIR FUNCIÓN DE ESTILO (Fuera del pipe para asegurar pureza)
-# Esta función fuerza a que NO haya sufijo (ni %)
-estilo_limpio <- function(x) {
+estilo_porcentaje <- function(x) {
   style_number(x, digits = 1, scale = 100, suffix = "")
 }
 
+# 2. GENERACIÓN DE LA TABLA ESTRATIFICADA
 # =============================================================================
-# TABLA 1: SOCIODEMOGRÁFICA (LIMPIA)
-# =============================================================================
-tabla1_es <- diseno_60mas %>%
-  tbl_svysummary(
-    by = anio,
-    include = c(sexo, edad, edad_cat, educ, zona, disc_binaria, multi2_factor, multi3_factor),
-    label = list(
-      sexo ~ "Sexo, n (%) [IC 95%]",
-      edad ~ "Edad, media (DE)",
-      edad_cat ~ "Grupo Etario, n (%) [IC 95%]",
-      educ ~ "Nivel Educacional, n (%) [IC 95%]",
-      zona ~ "Zona de Residencia, n (%) [IC 95%]",
-      disc_binaria ~ "Discapacidad, n (%) [IC 95%]",
-      multi2_factor ~ "Multimorbilidad (≥2), n (%) [IC 95%]",
-      multi3_factor ~ "Multimorbilidad (≥3), n (%) [IC 95%]"
-    ),
-statistic = list(
-      edad ~ "{mean} ({sd})",
-      # Aquí definimos el formato base: N (Porcentaje)
-      # El Intervalo de Confianza se agregará automáticamente después
-      all_categorical() ~ "{n_unweighted} ({p})" 
-    ),
+tabla1_sexo <- diseno_60mas %>%
+  tbl_strata(
+    strata = sexo,           # <--- AQUÍ ESTRATIFICAMOS
+    .header = "**{strata}**", # Título del estrato (Hombres / Mujeres)
     
-    # --- 1. SOLUCIÓN PARA VER EL DETALLE ---
-    # Al poner "categorical", obligamos a R a mostrar "Sin situación" y "En situación"
-    type = list(disc_binaria ~ "categorical"),
-    digits = list(all_continuous() ~ 1, all_categorical() ~ c(0, 1)),
-    missing = "no"
+    # Todo lo que sigue es tu código original, metido dentro de una función
+    .tbl_fun = ~ .x %>%
+      tbl_svysummary(
+        by = anio,
+        # OJO: Quitamos 'sexo' de la lista de variables fila
+        include = c(edad, educ, zona, disc_binaria, multi2_factor, multi3_factor),
+        label = list(
+          edad ~ "Edad (años)",
+          educ ~ "Nivel Educacional",
+          zona ~ "Zona de Residencia",
+          disc_binaria ~ "Limitación funcional (Discapacidad)",
+          multi2_factor ~ "Multimorbilidad (≥2 condiciones)",
+          multi3_factor ~ "Multimorbilidad (≥3 condiciones)"
+        ),
+        statistic = list(
+          edad ~ "{median} ({p25} - {p75})",  # Mediana (IQR)",
+          all_categorical() ~ "{n_unweighted} ({p})" 
+        ),
+        type = list(disc_binaria ~ "categorical"),
+        digits = list(all_continuous() ~ 1, all_categorical() ~ c(0, 1)),
+        missing = "no"
+      ) %>%
+      # Intervalos de Confianza
+      add_ci(
+        include = all_categorical(),
+        pattern = "{stat} [{ci}]",
+        style_fun = list(all_categorical() ~ estilo_porcentaje)
+      ) %>%
+      # Valores P y Columna Total (Opcional, a veces ensancha mucho la tabla)
+      add_p() %>%
+      # add_overall() %>%  <-- Sugerencia: Coméntalo si la tabla queda muy ancha
+      
+      bold_labels() %>%
+      
+      # Encabezados Internos (2015 vs 2022)
+      modify_header(
+        label = "**Variable**", 
+        stat_1 = "**2015**<br>n = {n_unweighted}",  
+        stat_2 = "**2022**<br>n = {n_unweighted}",
+        p.value = "**p**"
+      ) %>%
+      
+      # Limpieza de notas internas
+      modify_table_body(~ .x %>% mutate(stat_label = NA_character_)) %>%
+      modify_footnote(everything() ~ NA)
   ) %>%
   
-  # --- 2. SOLUCIÓN PARA INTERVALOS DE CONFIANZA ---
-  add_ci(
-    # pattern: define cómo se ve. {stat} es lo de arriba, {ci} es el intervalo.
-    include = all_categorical(),
-    pattern = "{stat} [{ci}]",
-    style_fun = list(all_categorical() ~ estilo_limpio
+  # 3. TOQUES FINALES (Fuera del estrato, aplica a la tabla unida)
+  # =============================================================================
+as_gt() %>% 
+  gt::tab_header(
+    title = md("**Tabla 1. Perfil sociodemográfico y de salud de la población mayor (60+ años)**"),
+    subtitle = "Comparación estratificada por Sexo entre 2015 y 2022"
+  ) %>%
+  gt::tab_source_note(
+    source_note = md(
+      "**Notas:** Datos presentados como: *Mediana (Rango Intercuartílico)* para edad; *n muestral (Porcentaje ponderado [IC 95%])* para variables categóricas.<br>
+      **Valor p:** Prueba de Chi-cuadrado de Rao-Scott (variables categóricas) y prueba de Wald (variables continuas).<br>
+      **Fuente:** Elaboración propia basada en ENDISC II (2015) y ENDIDE (2022)."
     )
   ) %>%
-  
-  # --- 3. VALORES P ---
-  add_p() %>%
-  add_overall() %>%
-  
-  bold_labels() %>%
-  
-  # --- AQUÍ ESTÁ LA SOLUCIÓN A TUS ENCABEZADOS ---
-  modify_header(
-    label = "**Variable**", 
-    # stat_1 es la primera columna (2015), stat_2 la segunda (2022).
-    # {n} aquí representa el N total de la columna (sin ponderar).
-    stat_1 = "**ENDISC 2015**<br>N = {n}",  
-    stat_2 = "**ENDIDE 2022**<br>N = {n}",
-    stat_0 = "**Total**<br>N = {n}",
-    p.value = "**Valor p**"
-  ) %>%
-  
-  # Borramos notas automáticas y ponemos la tuya personalizada
- modify_table_body(
-    ~ .x %>% mutate(stat_label = NA_character_)
-  ) %>%
-  modify_footnote(everything() ~ NA) %>% # Borra TODAS las notas automáticas (incluyendo CI = ...)
-  modify_footnote(
-    p.value ~ "Valor p: Chi-cuadrado de Rao-Scott (Categóricas) y T de Wald (Continua)."
-  ) %>%
-  
-  # Título y Fuente
-  modify_caption("**Tabla 1. Características de las personas mayores (60+ años) en las encuestas ENDISC 2015 y ENDIDE 2022.**") %>%
-  as_gt() %>% 
-  gt::tab_source_note(source_note = "Fuente: Elaboración propia en base a ENDISC 2015 y ENDIDE 2022.")
+  gt::tab_options(
+    table.font.size = "small",
+    data_row.padding = gt::px(4)
+  )
+
 # Imprimir
-tabla1_es
+tabla1_sexo
 ```
 
-```{r guardar-tabla1}
-# --- GUARDAR TABLA 1 ---
-# Si tu objeto se llama 'tabla1_es' (el que convertiste con as_gt en el paso anterior)
-here("output", "tables")
 
-# 2. Guardar la Tabla 1
-tabla1_es %>%
-  gtsave(filename = here("output", "tables", "tabla1_sociodemografica.docx"))
+
+```{r guardar-tabla1-socio}
+# --- GUARDAR TABLA 1 ---
+# Si tu objeto se llama 'tabla1_sexo' (el que convertiste con as_gt en el paso anterior)
+if (!dir.exists(here("output", "tables"))) {
+  dir.create(here("output", "tables"), recursive = TRUE)
+}
+
+# 2. Guardar Directamente (Sin as_gt, porque ya lo es)
+tabla1_sexo %>%
+  gtsave(
+    filename = "tabla1_sociodemografica.docx",
+    path = here("output", "tables"),
+    overwrite = TRUE
+  )
 
 ```
 ### Características generales por año (con multimorbilidad desagregada)
 
 ```{r tablas-enfermedades-es}
-# 1. CONFIGURACIÓN
+# 1. CONFIGURACIÓN Y ESTILOS
+# -----------------------------------------------------------------------------
 reset_gtsummary_theme()
 theme_gtsummary_language("es", decimal.mark = ",", big.mark = ".")
 
-estilo_limpio <- function(x) {
+estilo_porcentaje <- function(x) {
   style_number(x, digits = 1, scale = 100, suffix = "")
 }
 
-# 2. DEFINICIÓN DE VARIABLES
+# 2. DEFINICIÓN DE VARIABLES DE ENFERMEDADES
 vars_enf <- c("hta", "dm", "artr", "dep", "ans", "iam", "asma", "epoc", "ca", "dem", "erc", "hipot")
 
-# 3. GENERAR TABLA
-tabla1_enf_es <- diseno_60mas %>%
-  tbl_svysummary(
-    by = anio,
+# 3. GENERACIÓN DE LA TABLA ESTRATIFICADA
+# -----------------------------------------------------------------------------
+tabla1_ampliada_sexo <- diseno_60mas %>%
+  tbl_strata(
+    strata = sexo,            # <--- ESTRATIFICACIÓN PRINCIPAL
+    .header = "**{strata}**",  # Encabezados: **Hombre** / **Mujer**
     
-    include = c(
-      sexo, edad, edad_cat, educ, zona, disc_binaria, multi2_factor, multi3_factor,
-      all_of(vars_enf)
-    ),
-    
-    label = list(
-      # Socio
-      sexo ~ "Sexo, n (%) [IC 95%]",
-      edad ~ "Edad, media (DE)", 
-      edad_cat ~ "Grupo Etario, n (%) [IC 95%]",
-      educ ~ "Nivel Educacional, n (%) [IC 95%]",
-      zona ~ "Zona de Residencia, n (%) [IC 95%]",
-      disc_binaria ~ "Discapacidad, n (%) [IC 95%]",
-      multi2_factor ~ "Multimorbilidad (≥2), n (%) [IC 95%]",
-      multi3_factor ~ "Multimorbilidad (≥3), n (%) [IC 95%]",
+    .tbl_fun = ~ .x %>%
+      tbl_svysummary(
+        by = anio,
+        
+        # OJO: 'sexo' NO va aquí porque ya es el estrato
+        include = c(
+          edad, educ, zona, disc_binaria, multi2_factor, multi3_factor,
+          all_of(vars_enf) # Agregamos todas las enfermedades
+        ),
+        
+        label = list(
+          # --- Sociodemográficas ---
+          edad ~ "Edad, mediana", 
+          educ ~ "Nivel Educacional",
+          zona ~ "Zona de Residencia",
+          disc_binaria ~ "Limitación funcional (Discapacidad)",
+          multi2_factor ~ "Multimorbilidad (≥2 condiciones)",
+          multi3_factor ~ "Multimorbilidad (≥3 condiciones)",
+          
+          # --- Enfermedades ---
+          hta   ~ "Hipertensión Arterial", 
+          dm    ~ "Diabetes Mellitus", 
+          artr  ~ "Artritis / Artrosis",
+          dep   ~ "Depresión", 
+          ans   ~ "Ansiedad", 
+          iam   ~ "Enf. Cardíaca",
+          asma  ~ "Asma", 
+          epoc  ~ "EPOC", 
+          ca    ~ "Cáncer",
+          dem   ~ "Demencia", 
+          erc   ~ "Enfermedad Renal Crónica", 
+          hipot ~ "Enf. Tiroídea"
+        ),
+        
+        # Definición estricta de tipos
+        type = list(
+          edad ~ "continuous", 
+          -edad ~ "categorical" # Todo lo que no sea edad es categórico
+        ),
+        
+        statistic = list(
+          edad ~ "{median} ({p25} - {p75})",  # Mediana (IQR)",
+          all_categorical() ~ "{n_unweighted} ({p})"
+        ),
+        
+        digits = list(all_continuous() ~ 1, all_categorical() ~ c(0, 1)),
+        missing = "no"
+      ) %>%
       
-      # Enfermedades
-      hta   ~ "Hipertensión Arterial, n (%) [IC 95%]", 
-      dm    ~ "Diabetes Mellitus, n (%) [IC 95%]", 
-      artr  ~ "Artritis / Artrosis, n (%) [IC 95%]",
-      dep   ~ "Depresión, n (%) [IC 95%]", 
-      ans   ~ "Ansiedad, n (%) [IC 95%]", 
-      iam   ~ "Enf. Cardíaca, n (%) [IC 95%]",
-      asma  ~ "Asma, n (%) [IC 95%]", 
-      epoc  ~ "EPOC, n (%) [IC 95%]", 
-      ca    ~ "Cáncer, n (%) [IC 95%]",
-      dem   ~ "Demencia, n (%) [IC 95%]", 
-      erc   ~ "Enfermedad Renal Crónica, n (%) [IC 95%]", 
-      hipot ~ "Enf. Tiroídea, n (%) [IC 95%]"
-    ),
-    
-    # --- LA CORRECCIÓN CLAVE ---
-    type = list(
-      edad ~ "continuous",      # 1. Forzamos a Edad a ser continua
-      -edad ~ "categorical"     # 2. Todo lo que NO sea edad, es categórico
-    ),
-    
-    statistic = list(
-      edad ~ "{mean} ({sd})",
-      all_categorical() ~ "{n_unweighted} ({p})"
-    ),
-    
-    digits = list(all_continuous() ~ 1, all_categorical() ~ c(0, 1)),
-    missing = "no"
+      # Intervalos de Confianza (Excluyendo edad explícitamente)
+      add_ci(
+        include = -edad, 
+        pattern = "{stat} [{ci}]",
+        style_fun = list(all_categorical() ~ estilo_porcentaje)
+      ) %>%
+      
+      # Valores P
+      add_p() %>%
+      
+      bold_labels() %>%
+      
+      # Encabezados Internos (2015 vs 2022)
+      modify_header(
+        label = "**Variable**", 
+        stat_1 = "**2015**<br>n = {n_unweighted}",  
+        stat_2 = "**2022**<br>n = {n_unweighted}",
+        p.value = "**p**"
+      ) %>%
+      
+      # Limpieza técnica
+      modify_table_body(~ .x %>% mutate(stat_label = NA_character_)) %>%
+      modify_footnote(everything() ~ NA)
   ) %>%
   
-  # Intervalos de confianza (Excluyendo edad explícitamente)
-  add_ci(
-    include = -edad, 
-    pattern = "{stat} [{ci}]",
-    style_fun = list(all_categorical() ~ estilo_limpio)
+  # 4. TOQUES FINALES (GT)
+  # -----------------------------------------------------------------------------
+ as_gt() %>% 
+  gt::tab_header(
+    title = md("**Tabla 2. Prevalencia de condiciones crónicas y multimorbilidad**"),
+    subtitle = "Comparación 2015-2022 estratificada por sexo"
   ) %>%
-  
-  add_p() %>%
-  add_overall() %>%
-  bold_labels() %>%
-  
-  modify_header(
-    label = "**Variable**",
-    stat_1 = "**ENDISC 2015**<br>N = {n}",  
-    stat_2 = "**ENDIDE 2022**<br>N = {n}",
-    stat_0 = "**Total**<br>N = {n}",
-    p.value = "**Valor p**"
-  ) %>%
-  
-  # Notas y Fuente
-  modify_footnote(everything() ~ NA) %>% 
-  modify_footnote(p.value ~ "Valor p: Chi-cuadrado de Rao-Scott (Categóricas) y T de Wald (Continua).") %>%
-  modify_caption("**Tabla 1. Características de las personas mayores (60+ años) en las encuestas ENDISC 2015 y ENDIDE 2022.**") %>%
-  
-  as_gt() %>% 
-  gt::tab_source_note(source_note = "Fuente: Elaboración propia en base a ENDISC 2015 y ENDIDE 2022.")
+  gt::tab_source_note(
+    source_note = md("Notas: *n muestral (Porcentaje ponderado [IC 95%])*. Valor p: Chi-cuadrado de Rao-Scott.")
+  )
 
-# Imprimir
-tabla1_enf_es
+# Visualizar
+tabla1_ampliada_sexo
 ```
 ```{r guardar-tabla1-enfermedades}
 # --- GUARDAR TABLA 1 ---
-# Si tu objeto se llama 'tabla1_es' (el que convertiste con as_gt en el paso anterior)
-here("output", "tables")
+if (!dir.exists(here("output", "tables"))) {
+  dir.create(here("output", "tables"), recursive = TRUE)
+}
 
-# 2. Guardar la Tabla 1
-tabla1_enf_es %>%
-  gtsave(filename = here("output", "tables", "tabla1_sociodemografica_enf.docx"))
+# 2. Guardar Directamente (Sin as_gt, porque ya lo es)
+tabla1_ampliada_sexo %>%
+  gtsave(
+    filename = "tabla1_sociodemografica_enf.docx",
+    path = here("output", "tables"),
+    overwrite = TRUE
+  )
 
 ```
 
@@ -597,52 +594,1061 @@ tabla1_enf_es %>%
 
 ## OBJETIVO 2: Prevalencia de multimorbilidad en personas con limitación funcional
 
-### Prevalencia de multimorbilidad según limitación funcional
+
+### Prevalencia general de multimorbilidad
 
 
 
-### Prevalencia de multimorbilidad según edad y sexo EN personas con LF
+### Test de diferencia de prevalencias de multimorbilidad
+
+
+
+
+### Prevalencia de multimorbilidad por edad
+
+
+
+
+### Prevalencia de multimorbilidad por sexo
+
+```{r sensibilidad-zona-educ}
+# 1. Definir la sub-población
+# Usamos 'disc_binaria' (el Factor) para filtrar a los que están "En situación"
+diseno_obj2 <- subset(diseno_60mas, disc_binaria == "En situación")
+
+# 2. Modelo Mínimo (Ajuste Obligatorio: Año + Sexo + Edad)
+# IMPORTANTE: Usamos 'multi2_num' (0/1) como variable respuesta
+m_minimo <- svyglm(
+  multi2_num ~ anio + sexo + edad + I(edad^2), 
+  design = diseno_obj2, 
+  family = quasibinomial()
+)
+
+# 3. Modelo con ZONA (¿Cambia el efecto del año al agregar zona?)
+m_zona <- svyglm(
+  multi2_num ~ anio + sexo + edad + I(edad^2) + zona, 
+  design = diseno_obj2, 
+  family = quasibinomial()
+)
+
+# 4. Modelo con EDUCACIÓN (¿Cambia el efecto del año al agregar educación?)
+m_educ <- svyglm(
+  multi2_num ~ anio + sexo + edad + I(edad^2) + educ, 
+  design = diseno_obj2, 
+  family = quasibinomial()
+)
+
+# --- CÁLCULO DE SENSIBILIDAD (COMPARACIÓN DE ORs) ---
+
+# Extraemos el OR del año 2022 (exp elevado al coeficiente)
+or_min <- exp(coef(m_minimo)["anio2022"])
+or_zon <- exp(coef(m_zona)["anio2022"])
+or_edu <- exp(coef(m_educ)["anio2022"])
+
+# Mostramos resultados
+cat("=== ANÁLISIS DE CONFUSIÓN (CAMBIO EN EL OR DEL AÑO) ===\n")
+cat("1. OR Modelo Base:      ", round(or_min, 4), "\n")
+
+# Cálculo de cambio porcentual: (Nuevo - Viejo) / Viejo
+delta_zona <- abs((or_zon - or_min) / or_min) * 100
+delta_educ <- abs((or_edu - or_min) / or_min) * 100
+
+cat("2. OR Ajustado por Zona:", round(or_zon, 4), " -> Cambio:", round(delta_zona, 2), "%\n")
+cat("3. OR Ajustado por Educ:", round(or_edu, 4), " -> Cambio:", round(delta_educ, 2), "%\n")
+
+cat("\n--- CONCLUSIÓN TÉCNICA ---\n")
+if(delta_zona > 10) cat("(!) La ZONA cambia el OR en >10%. Es un confusor importante.\n") else cat("(ok) La ZONA no cambia sustancialmente el resultado (<10%).\n")
+if(delta_educ > 10) cat("(!) La EDUCACIÓN cambia el OR en >10%. Es un confusor importante.\n") else cat("(ok) La EDUCACIÓN no cambia sustancialmente el resultado (<10%).\n")
+
+# Criterio: Si el cambio es < 10%, la variable no es un confusor fuerte.
+# (Generalmente se conservan por teoría, pero esto te da el dato numérico).
+```
+
+```{r sensibilidad-zona-educ-tabla}
+# Pregunta: ¿El cambio en la multimorbilidad depende del Sexo o la Zona?
+# (Hipótesis: Quizás en mujeres aumentó más, o en zona rural bajó menos, etc.)
+
+# A. Interacción Año x SEXO
+# Fórmula: anio * sexo (incluye anio + sexo + anio:sexo) + variables de control
+m_int_sexo <- svyglm(
+  multi2_num ~ anio * sexo + edad + I(edad^2) + zona + educ, 
+  design = diseno_obj2, 
+  family = quasibinomial()
+)
+
+# Test de significancia (Wald Test para el término específico "anio:sexo")
+test_sexo <- regTermTest(m_int_sexo, "anio:sexo", method = "Wald")
+p_val_sexo <- test_sexo$p
+
+# B. Interacción Año x ZONA
+m_int_zona <- svyglm(
+  multi2_num ~ anio * zona + edad + I(edad^2) + sexo + educ, 
+  design = diseno_obj2, 
+  family = quasibinomial()
+)
+
+test_zona <- regTermTest(m_int_zona, "anio:zona", method = "Wald")
+p_val_zona <- test_zona$p
+
+# --- REPORTE DE RESULTADOS ---
+cat("=== RESULTADOS DE INTERACCIONES ===\n")
+
+# Interpretación para Sexo
+cat("1. Interacción Año*Sexo (p =", round(p_val_sexo, 4), "):\n")
+if(p_val_sexo < 0.05) {
+  cat("   (*) SIGNIFICATIVA: El efecto del año ES DISTINTO entre hombres y mujeres.\n")
+  cat("   -> ACCIÓN: Debes reportar los OR estratificados (un modelo para hombres, otro para mujeres).\n")
+} else {
+  cat("   (ns) No significativa: El efecto del año es similar en ambos sexos.\n")
+  cat("   -> ACCIÓN: Mantienes el modelo general sin separar por sexo.\n")
+}
+
+cat("\n")
+
+# Interpretación para Zona
+cat("2. Interacción Año*Zona (p =", round(p_val_zona, 4), "):\n")
+if(p_val_zona < 0.05) {
+  cat("   (*) SIGNIFICATIVA: El efecto del año ES DISTINTO entre urbano y rural.\n")
+  cat("   -> ACCIÓN: Debes reportar los OR estratificados por zona.\n")
+} else {
+  cat("   (ns) No significativa: El efecto del año es similar en ambas zonas.\n")
+  cat("   -> ACCIÓN: Mantienes el modelo general sin separar por zona.\n")
+}
+```
+
+
+
+### Prevalencia de multimorbilidad estratificada (edad y sexo)
+```{r graficos-obj2-multi3}
+# PASO 1: FUNCIÓN GENERADORA (Corregida)
+# -----------------------------------------------------------------------------
+obtener_datos_modelo <- function(sexo_filtro, disc_filtro) {
+  
+  # 1. Subconjunto: Usamos el diseño 60+ que ya tiene las variables
+  diseno_sub <- subset(diseno_60mas, 
+                       sexo == sexo_filtro & 
+                       disc_binaria == disc_filtro)
+  
+  # 2. Modelo: Usamos 'multi3_num' (0/1) que creamos al inicio
+  # Importante: Ajustamos por edad cuadrática, educación y zona
+  mod <- svyglm(
+    multi3_num ~ anio * edad + I(edad^2) + educ + zona, 
+    design = diseno_sub, 
+    family = quasibinomial()
+  )
+  
+  # 3. Predicciones (Marginal Means)
+  # Calculamos la probabilidad para una persona con educ=Básica y zona=Urbano
+  # (Esto estandariza la comparación)
+  edades_corte <- c(60, 70, 80, 90)
+  
+  preds <- predictions(
+    mod, 
+    newdata = datagrid(
+      anio = c("2015", "2022"), 
+      edad = edades_corte,
+      educ = "Básica", 
+      zona = "Urbano"
+    )
+  ) %>% as.data.frame()
+  
+  # 4. Comparaciones (Diferencia 2022 - 2015)
+  comps <- comparisons(
+    mod, 
+    variables = "anio",
+    newdata = datagrid(edad = edades_corte, educ = "Básica", zona = "Urbano")
+  ) %>% as.data.frame()
+  
+  # 5. Armado de la tabla resumen
+  resumen <- comps %>%
+    select(edad, estimate, conf.low, conf.high, p.value) %>%
+    mutate(
+      # Recuperamos las prevalencias puntuales desde 'preds'
+      # OJO: Asumimos que el orden de filas coincide (marginaleffects suele respetar el orden)
+      prev15 = preds$estimate[preds$anio == "2015"] * 100,
+      prev22 = preds$estimate[preds$anio == "2022"] * 100,
+      
+      dif = estimate * 100,
+      
+      # Formato Texto
+      texto_15_22 = sprintf("%.1f%% vs %.1f%%", prev15, prev22), 
+      texto_dif   = sprintf("%.1f (%.1f, %.1f)", dif, conf.low*100, conf.high*100),
+      texto_p     = style_pvalue(p.value, digits = 3)
+    ) %>%
+    select(edad, texto_15_22, texto_dif, texto_p)
+  
+  return(resumen)
+}
+
+# PASO 2: EJECUCIÓN (Generando los 4 bloques)
+# -----------------------------------------------------------------------------
+cat_con <- "En situación"   
+cat_sin <- "Sin situación"  
+
+# --- BLOQUE HOMBRES ---
+# Calculamos Con y Sin limitación
+h_con <- obtener_datos_modelo("Hombre", cat_con) %>% 
+  rename(col_prev = texto_15_22, col_dif = texto_dif, col_p = texto_p)
+
+h_sin <- obtener_datos_modelo("Hombre", cat_sin) %>% 
+  rename(col_prev_s = texto_15_22, col_dif_s = texto_dif, col_p_s = texto_p)
+
+# Unimos columnas por Edad
+tabla_hombres <- left_join(h_con, h_sin, by = "edad") %>% 
+  mutate(Grupo = "Hombres")
+
+# --- BLOQUE MUJERES ---
+m_con <- obtener_datos_modelo("Mujer", cat_con) %>% 
+  rename(col_prev = texto_15_22, col_dif = texto_dif, col_p = texto_p)
+
+m_sin <- obtener_datos_modelo("Mujer", cat_sin) %>% 
+  rename(col_prev_s = texto_15_22, col_dif_s = texto_dif, col_p_s = texto_p)
+
+tabla_mujeres <- left_join(m_con, m_sin, by = "edad") %>% 
+  mutate(Grupo = "Mujeres")
+
+# PASO 3: TABLA FINAL (GT)
+# -----------------------------------------------------------------------------
+tabla2_3final_comparada <- bind_rows(tabla_hombres, tabla_mujeres) %>%
+  mutate(edad = paste(edad, "años")) %>%
+  group_by(Grupo) %>% # Esto separa visualmente Hombres y Mujeres
+  gt() %>%
+  
+  # Encabezados
+  tab_header(
+    title = md("**Tabla 2. Prevalencia de Multimorbilidad (≥3) según Limitación Funcional**"),
+    subtitle = md("Comparación 2015 vs 2022 según estado de limitación funcional y edad")
+  ) %>%
+  
+  # Agrupadores de Columnas (Spanners)
+  tab_spanner(
+    label = md("**Con Limitación Funcional**"),
+    columns = c(col_prev, col_dif, col_p)
+  ) %>%
+  tab_spanner(
+    label = md("**Sin Limitación Funcional**"),
+    columns = c(col_prev_s, col_dif_s, col_p_s)
+  ) %>%
+  
+  # Etiquetas de Columnas
+  cols_label(
+    edad = "Edad",
+    col_prev   = "2015 vs 2022", col_dif   = "Diferencia [IC 95%]", col_p   = "Valor p",
+    col_prev_s = "2015 vs 2022", col_dif_s = "Diferencia [IC 95%]", col_p_s = "Valor p"
+  ) %>%
+  
+  # Estética
+  cols_align(align = "center", columns = -edad) %>%
+  tab_options(
+    table.font.size = "small",
+    data_row.padding = px(3),
+    row_group.font.weight = "bold"
+  ) %>%
+  
+  # Notas al pie
+  tab_source_note(md("*Nota:* Estimaciones ajustadas para nivel educativo 'Básica' y zona 'Urbano' mediante modelos GLM cuasibinomiales.")) %>%
+  tab_source_note(md("**Fuente:** Elaboración propia en base a ENDISC 2015 y ENDIDE 2022."))
+
+# Mostrar
+tabla2_3final_comparada
+# Hay una caída en la prevalencia de multimorbilidad en los grupos de edad más avanzada, específicamente en 2022. Esto puede deberse a varios factores:
+# El "Efecto del Superviviente Sano" (Selection Bias): Los que quedan vivos para responder la encuesta a los 90 años son una "élite biológica" o personas con una genética muy resistente. Por eso, paradójicamente, el grupo de 90+ puede parecer "más sano" (o con menos multimorbilidad acumulada) que el de 80.
+# El "Efecto Cosecha" de la Pandemia (COVID-19): Es muy probable que la encuesta de 2022 esté capturando a una población de 90 años que sobrevivió a la pandemia precisamente porque tenían menos multimorbilidad que sus pares que fallecieron entre 2020 y 2021. La pandemia "removió" de la muestra a los sujetos más frágiles, acentuando la caída de la curva en 2022.
+# Artefacto Matemático del Modelo Cuadrático (edad^2): Una curva cuadrática (parábola) obliga a los datos a subir, llegar a un máximo, y luego bajar. Como la prevalencia deja de subir a los 85 años (se estanca), el modelo matemático interpreta que la tendencia debe "curvarse hacia abajo". Si miras los Intervalos de Confianza a los 90 años en la Tabla 2, son amplios (ej. Hombres diferencia: -38.7 a -10.8). Esto indica que hay pocos casos (N bajo) en ese extremo, como se ve en la "cola" de tu histograma de distribución de edad. El modelo es muy sensible a esos pocos datos
+```
+
+```{r graficos-obj2-multi2}
+# -----------------------------------------------------------------------------
+# 1. FUNCIÓN GENERADORA (Corregida para usar multi2_num)
+# -----------------------------------------------------------------------------
+obtener_datos_modelo <- function(sexo_filtro, disc_filtro) {
+  
+  # a. Definir el subconjunto (Usamos diseno_60mas que ya tiene todo)
+  diseno_sub <- subset(diseno_60mas, 
+                       sexo == sexo_filtro & 
+                       disc_binaria == disc_filtro)
+  
+  # b. Ajustar el modelo 
+  # IMPORTANTE: Usamos 'multi2_num' (la variable del Objetivo 2)
+  mod <- svyglm(
+    multi2_num ~ anio * edad + I(edad^2) + educ + zona, 
+    design = diseno_sub, 
+    family = quasibinomial()
+  )
+  
+  # c. Predicciones a edades corte (Estandarizando educ y zona)
+  edades_corte <- c(60, 70, 80, 90)
+  
+  preds <- predictions(
+    mod, 
+    newdata = datagrid(anio = c("2015", "2022"), 
+                       edad = edades_corte,
+                       educ = "Básica",  # Ajuste por defecto
+                       zona = "Urbano")  # Ajuste por defecto
+  ) %>% as.data.frame()
+  
+  # d. Comparaciones (Diferencias)
+  comps <- comparisons(
+    mod, variables = "anio",
+    newdata = datagrid(edad = edades_corte, educ = "Básica", zona = "Urbano")
+  ) %>% as.data.frame()
+  
+  # e. Limpieza y Formato
+  resumen <- comps %>%
+    select(edad, estimate, conf.low, conf.high, p.value) %>%
+    mutate(
+      # Recuperar prevalencias puntuales
+      prev15 = preds$estimate[preds$anio == "2015"] * 100,
+      prev22 = preds$estimate[preds$anio == "2022"] * 100,
+      dif    = estimate * 100,
+      
+      # Formato Texto para la tabla
+      texto_15_22 = sprintf("%.1f%% vs %.1f%%", prev15, prev22), 
+      texto_dif   = sprintf("%.1f (%.1f, %.1f)", dif, conf.low*100, conf.high*100),
+      texto_p     = style_pvalue(p.value, digits = 3)
+    ) %>%
+    select(edad, texto_15_22, texto_dif, texto_p)
+  
+  return(resumen)
+}
+
+# -----------------------------------------------------------------------------
+# 2. EJECUCIÓN Y ARMADO DE LA TABLA
+# -----------------------------------------------------------------------------
+cat_con <- "En situación"   
+cat_sin <- "Sin situación"  
+
+# --- Hombres ---
+# Nota: Renombramos a nombres genéricos (col_...) para facilitar el binding posterior
+h_con <- obtener_datos_modelo("Hombre", cat_con) %>% 
+  rename(col_prev = texto_15_22, col_dif = texto_dif, col_p = texto_p)
+
+h_sin <- obtener_datos_modelo("Hombre", cat_sin) %>% 
+  rename(col_prev_s = texto_15_22, col_dif_s = texto_dif, col_p_s = texto_p)
+
+tabla_hombres <- left_join(h_con, h_sin, by = "edad") %>% mutate(Grupo = "Hombres")
+
+# --- Mujeres ---
+m_con <- obtener_datos_modelo("Mujer", cat_con) %>% 
+  rename(col_prev = texto_15_22, col_dif = texto_dif, col_p = texto_p)
+
+m_sin <- obtener_datos_modelo("Mujer", cat_sin) %>% 
+  rename(col_prev_s = texto_15_22, col_dif_s = texto_dif, col_p_s = texto_p)
+
+tabla_mujeres <- left_join(m_con, m_sin, by = "edad") %>% mutate(Grupo = "Mujeres")
+
+# -----------------------------------------------------------------------------
+# 3. GENERACIÓN DE TABLA GT
+# -----------------------------------------------------------------------------
+tabla2_final_comparada <- bind_rows(tabla_hombres, tabla_mujeres) %>%
+  mutate(edad = paste(edad, "años")) %>%
+  group_by(Grupo) %>%
+  gt() %>%
+  
+  # Encabezados
+  tab_header(
+    title = md("**Tabla 2. Prevalencia de Multimorbilidad (≥2) según Limitación Funcional**"),
+    subtitle = md("Comparación 2015 vs 2022 ajustada por edad (término cuadrático)")
+  ) %>%
+  
+  # Spanners (Agrupadores superiores)
+  tab_spanner(
+    label = md("**Con Limitación Funcional**"),
+    columns = c(col_prev, col_dif, col_p)
+  ) %>%
+  tab_spanner(
+    label = md("**Sin Limitación Funcional**"),
+    columns = c(col_prev_s, col_dif_s, col_p_s)
+  ) %>%
+  
+  # Etiquetas de columnas
+  cols_label(
+    edad = "Edad",
+    col_prev   = "2015 vs 2022", col_dif   = "Diferencia (IC 95%)", col_p   = "Valor p",
+    col_prev_s = "2015 vs 2022", col_dif_s = "Diferencia (IC 95%)", col_p_s = "Valor p"
+  ) %>%
+  
+  # Estética
+  cols_align(align = "center", columns = -edad) %>%
+  tab_options(
+    table.font.size = "small",
+    data_row.padding = px(3),
+    row_group.font.weight = "bold",
+    row_group.background.color = "#f0f0f0"
+  ) %>%
+  
+  # Notas al pie
+  tab_source_note(md("*Nota:* Estimaciones ajustadas para nivel educativo 'Básica' y zona 'Urbano' mediante modelos GLM cuasibinomiales.")) %>% 
+  tab_source_note(md("**Fuente:** Elaboración propia en base a ENDISC 2015 y ENDIDE 2022."))
+
+# Mostrar resultado
+tabla2_final_comparada
+# Hay una caída en la prevalencia de multimorbilidad en los grupos de edad más avanzada, específicamente en 2022. Esto puede deberse a varios factores:
+# El "Efecto del Superviviente Sano" (Selection Bias): Los que quedan vivos para responder la encuesta a los 90 años son una "élite biológica" o personas con una genética muy resistente. Por eso, paradójicamente, el grupo de 90+ puede parecer "más sano" (o con menos multimorbilidad acumulada) que el de 80.
+# El "Efecto Cosecha" de la Pandemia (COVID-19): Es muy probable que la encuesta de 2022 esté capturando a una población de 90 años que sobrevivió a la pandemia precisamente porque tenían menos multimorbilidad que sus pares que fallecieron entre 2020 y 2021. La pandemia "removió" de la muestra a los sujetos más frágiles, acentuando la caída de la curva en 2022.
+# Artefacto Matemático del Modelo Cuadrático (edad^2): Una curva cuadrática (parábola) obliga a los datos a subir, llegar a un máximo, y luego bajar. Como la prevalencia deja de subir a los 85 años (se estanca), el modelo matemático interpreta que la tendencia debe "curvarse hacia abajo". Si miras los Intervalos de Confianza a los 90 años en la Tabla 2, son amplios (ej. Hombres diferencia: -38.7 a -10.8). Esto indica que hay pocos casos (N bajo) en ese extremo, como se ve en la "cola" de tu histograma de distribución de edad. El modelo es muy sensible a esos pocos datos
+```
+
+
+```{r tabla-obj2-prevalencia-multi-edad}
+# Para salir de dudas sobre si es un artefacto del modelo o una realidad de los datos crudos, se calculará la prevalencia observada (sin modelo, el dato puro) para los mayores de 85 o 90 años. Si el dato crudo también baja, confirma la teoría biológica/pandémica. Si el dato crudo sube o se mantiene igual, pero la tabla dice que baja, entonces es el término cuadrático (edad^2) forzando la curva.
+
+# Vamos a mirar qué pasa realmente en la "cuarta edad" (85+)
+# Creando un grupo específico para ver el final de la vida
+# =============================================================================
+# ANÁLISIS EXPLORATORIO: LA CUARTA EDAD (80+ AÑOS)
+# =============================================================================
+
+# 1. Crear variables temporales en el diseño (Solo para esta tabla)
+# Definimos "Muy Mayores" como 80 a 89 y "Longevos" como 90+
+diseno_muy_mayores <- update(
+  diseno_obj2, 
+  grupo_longevidad = ifelse(edad >= 90, "90 años o más", "80 a 89 años")
+)
+
+# 2. Tabla Cruzada (Filtrando solo a los mayores de 80)
+# Objetivo: Ver cómo cambió la salud en los más viejos entre 2015 y 2022
+tabla_cuarta_edad <- diseno_muy_mayores %>%
+  subset(edad >= 80) %>% 
+  tbl_svysummary(
+    by = anio,
+    include = c(grupo_longevidad, multi2_num, multi3_num), 
+    
+    # Etiquetas bonitas
+    label = list(
+      grupo_longevidad ~ "Grupo Etario",
+      multi2_num ~ "Multimorbilidad (≥2)",
+      multi3_num ~ "Multimorbilidad (≥3)"
+    ),
+    
+    # Forzamos que se muestren como SI/NO (Porcentajes)
+    type = list(
+      c(multi2_num, multi3_num) ~ "categorical"
+    ),
+    
+    # Formato: % (n)
+    statistic = all_categorical() ~ "{p}%",
+    digits = all_categorical() ~ 1
+  ) %>%
+  add_p() %>%
+  modify_caption("**Tabla Exploratoria. Salud en la Cuarta Edad (Personas con limitación ≥80 años)**")
+
+# Mostrar
+tabla_cuarta_edad
+#1. La Edad "Sube" (Composición Demográfica) Fíjate en la fila "90 o más":
+#2015: El 19% de los mayores de 80 años tenían más de 90.
+#2022: El 25% de los mayores de 80 años tienen más de 90.
+#Conclusión: En 2022, el grupo de "muy mayores" es más longevo (hay más gente de 90+ proporcionalmente que antes).
+#La Multimorbilidad "Baja" (Carga de Enfermedad)
+#Fíjate en la fila multi_num (que aquí parece estar actuando como indicador de presencia de multimorbilidad):
+#2015: El indicador era de 83%.
+#2022: El indicador bajó drásticamente a 62%.
+#Conclusión: Aunque la gente es más vieja en 2022, ¡están más sanos (o tienen menos enfermedades acumuladas)!
+```
+
+
+```{r guardar-tabla2 -3-multi-edad}
+# --- GUARDAR TABLA 2 ---
+# Si tu objeto se llama 'tabla2_sexo' (el que convertiste con as_gt en el paso anterior)
+here("output", "tables")
+
+# 2. Guardar la Tabla 1
+tabla2_final_comparada %>%
+  gtsave(filename = here("output", "tables", "tabla2_prev_multi2.docx"),
+         overwrite = TRUE
+         )
+```
+
+### Visualización de cambios temporales 
+```{r grafico-obj2-multi}
+
+# 1. FUNCIÓN PARA GENERAR DATOS DE PREDICCIÓN
+# -----------------------------------------------------------------------------
+generar_curvas <- function(variable_respuesta, etiqueta_severidad) {
+  
+  # A. Definir diseño (Solo personas con limitación)
+  diseno_sub <- subset(diseno_60mas, disc_binaria == "En situación")
+  
+  # B. Ajustar Modelo (Dinámico según la variable que pidamos)
+  # Nota: Usamos la fórmula as.formula para inyectar el nombre de la variable
+  formula_modelo <- as.formula(paste(variable_respuesta, "~ anio * edad + I(edad^2) + sexo + educ + zona"))
+  
+  modelo <- svyglm(
+    formula_modelo,
+    design = diseno_sub,
+    family = quasibinomial()
+  )
+  
+  # C. Generar Predicciones (60 a 95 años)
+  # Predecimos para ambos sexos y ambos años a la vez
+  nuevos_datos <- datagrid(
+    model = modelo,
+    edad = seq(60, 95, by = 1),
+    anio = c("2015", "2022"),
+    sexo = c("Hombre", "Mujer"), # <--- Aquí pedimos ambos sexos
+    educ = "Básica",
+    zona = "Urbano"
+  )
+  
+  predictions(modelo, newdata = nuevos_datos) %>%
+    as.data.frame() %>%
+    mutate(Severidad = etiqueta_severidad) # Etiquetamos para el gráfico
+}
+
+# 2. GENERACIÓN DE DATOS (EJECUTAMOS LA FUNCIÓN)
+# -----------------------------------------------------------------------------
+# Calculamos Multi >= 2
+datos_multi2 <- generar_curvas("multi2_num", "Multi (≥2)")
+
+# Calculamos Multi >= 3
+datos_multi3 <- generar_curvas("multi3_num", "Multi (≥3)")
+
+# Unimos todo
+datos_grafico_final <- bind_rows(datos_multi2, datos_multi3)
+
+# 3. CREACIÓN DEL GRÁFICO MAESTRO
+# -----------------------------------------------------------------------------
+figura_final <- ggplot(datos_grafico_final, aes(x = edad, y = estimate, color = anio, fill = anio)) +
+  
+  # A. Bandas de Confianza
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2, color = NA) +
+  
+  # B. Líneas de Tendencia
+  geom_line(linewidth = 1) +
+  
+  # C. Facetas (LO MÁS IMPORTANTE: Filas = Severidad, Columnas = Sexo)
+  facet_grid(Severidad ~ sexo) + 
+  
+  # D. Colores Oficiales
+  scale_color_manual(values = c("2015" = "#E69F00", "2022" = "#56B4E9"), name = "Año") +
+  scale_fill_manual(values = c("2015" = "#E69F00", "2022" = "#56B4E9"), name = "Año") +
+  
+  # E. Escalas
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  scale_x_continuous(breaks = seq(60, 90, 10)) +
+  
+  # F. Etiquetas
+  labs(
+    title = "Evolución de la Multimorbilidad en Personas con Limitación Funcional",
+    subtitle = "Comparación por Severidad (≥2 vs ≥3) y Sexo",
+    x = "Edad (años)",
+    y = "Probabilidad Predicha",
+    caption = "Fuente: Elaboración propia (ENDISC 2015 - ENDIDE 2022).\nModelos ajustados por edad (cuadrática), educación y zona."
+  ) +
+  
+  # G. Tema Limpio
+  theme_bw(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_rect(fill = "gray95"), # Fondo gris suave para los títulos
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.minor = element_blank()
+  )
+
+# 4. MOSTRAR Y GUARDAR
+print(figura_final)
+
+# Opcional: Guardar en alta calidad
+# ggsave("Figura1_Multimorbilidad.png", width = 10, height = 8, dpi = 300)
+```
 
 ------------------------------------------------------------------------
 
 ## OBJETIVO 3: Comparación de prevalencia de limitación funcional entre 2015 y 2022
 
+
+
 ### Prevalencia general de limitación funcional
+```{r tabla-prev-limitacion }
+# =============================================================================
+# PREVALENCIA GENERAL DE LIMITACIÓN FUNCIONAL (DATO AGREGADO)
+# =============================================================================
+# Esta tabla responde: ¿Aumentó o disminuyó la discapacidad a nivel país?
+
+diseno_60mas %>%
+  tbl_svysummary(
+    by = anio,
+    include = c(disc_binaria), # Variable: Limitación (Sí/No)
+    
+    # Formato: Porcentaje con 1 decimal. (El N muestral va opcional)
+    statistic = all_categorical() ~ "{p}%", 
+    digits = all_categorical() ~ 1,
+    
+    # Etiqueta clara
+    label = list(disc_binaria ~ "Condición de Limitación")
+  ) %>%
+  add_p() %>%         # Test de diferencia (Chi-cuadrado)
+  add_ci() %>%        # IMPORTANTE: Agrega el Intervalo de Confianza [IC 95%]
+  modify_header(label = "**Estado**") %>%
+  modify_caption("**Tabla General. Evolución de la prevalencia de Limitación Funcional en Chile (2015-2022)**")
+```
 
 
-### Test de diferencia de prevalencias
+### Test de diferencia de prevalencias de limitación funcional
+La prevalencia de limitación funcional cambió de 38% a 33%, siendo esta diferencia estadísticamente significativa (p < 0.001)
+
+### Prevalencia de limitación funcional por edad
+
+```{r tabla-prev-limitacion-edad }
+# =============================================================================
+# PREVALENCIA DE LIMITACIÓN FUNCIONAL SEGÚN GRUPO ETARIO
+# =============================================================================
+
+# 1. Actualizar el diseño con la variable de décadas
+# (Asegúrate que 'edad' sea numérica en tu base original)
+diseno_60mas <- update(
+  diseno_60mas, 
+  edad_decadas = cut(as.numeric(edad), 
+                     breaks = c(60, 70, 80, 90, Inf),
+                     labels = c("60 a 69 años", "70 a 79 años", "80 a 89 años", "90 o más"),
+                     right = FALSE) 
+)
+
+# 2. TABLA DE PREVALENCIA POR EDAD (Comparativa 2015 vs 2022)
+# -----------------------------------------------------------------------------
+
+# ¡AQUÍ ESTABA EL ERROR! Faltaba "tabla_prevalencia_edad <-" al principio
+tabla_prevalencia_edad <- diseno_60mas %>%
+  tbl_strata(
+    strata = edad_decadas,       
+    .tbl_fun = ~ .x %>%
+      tbl_svysummary(
+        by = anio,               
+        include = c(disc_binaria),
+        statistic = all_categorical() ~ "{p}%", 
+        digits = all_categorical() ~ 1,
+        missing = "no"           
+      ) %>%
+      add_p() %>%               
+      modify_header(label = "**Condición**")
+  ) %>%
+  modify_caption("**Tabla 3. Prevalencia de Limitación Funcional: Comparación 2015 vs 2022 por grupo etario**")
+
+# 3. MOSTRAR TABLA (Ahora sí funcionará porque el objeto ya existe)
+tabla_prevalencia_edad
+```
 
 
+### Prevalencia de limitación funcional por sexo
+```{r tabla-prev-limitacion-sexo }
+# =============================================================================
+# COMPARACIÓN 2015 vs 2022 SEGÚN SEXO
+# =============================================================================
 
-### Prevalencia por edad
+# Esta tabla responde: 
+# "Para los Hombres: ¿Aumentó o bajó la limitación entre 2015 y 2022? (y su valor p)"
+# "Para las Mujeres: ¿Aumentó o bajó la limitación entre 2015 y 2022? (y su valor p)"
+
+diseno_60mas %>%
+  tbl_strata(
+    strata = sexo,               # <--- 1. SEPARAMOS POR SEXO (Un bloque Hombres, uno Mujeres)
+    .tbl_fun = ~ .x %>%
+      tbl_svysummary(
+        by = anio,               # <--- 2. COMPARAMOS AÑOS (Columnas)
+        include = c(disc_binaria),
+        statistic = all_categorical() ~ "{p}%",
+        digits = all_categorical() ~ 1,
+        missing = "no"
+      ) %>%
+      add_p() %>%                # <--- 3. EL TEST: ¿Es sign. el cambio de año?
+      modify_header(label = "**Condición**")
+  ) %>%
+  modify_caption("**Tabla 3. Prevalencia de Limitación Funcional: Comparación 2015 vs 2022 según sexo**")
+```
 
 
+### Prevalencia de limitación funcional estratificada (edad y sexo)
+```{r modelo-logistico-obj3}
+# 1. AJUSTAR MODELOS (Usando 'lim_num' que ya creamos en la preparación)
+# -----------------------------------------------------------------------------
+# Nota: lim_num es 1 si está "En situación" y 0 si no.
 
-### Prevalencia por sexo
+# --- Modelo Hombres ---
+mod_lim_hombres <- svyglm(
+  lim_num ~ anio * edad + I(edad^2) + educ + zona, 
+  design = subset(diseno_60mas, sexo == "Hombre"), 
+  family = quasibinomial()
+)
 
-### Prevalencia estratificada (edad y sexo)
+# --- Modelo Mujeres ---
+mod_lim_mujeres <- svyglm(
+  lim_num ~ anio * edad + I(edad^2) + educ + zona, 
+  design = subset(diseno_60mas, sexo == "Mujer"), 
+  family = quasibinomial()
+)
 
+# 2. FUNCIÓN GENERADORA DE LA TABLA (Marginal Effects)
+# -----------------------------------------------------------------------------
+generar_tabla_obj3 <- function(modelo, titulo_grupo) {
+  
+  # Definimos cortes de edad para visualizar
+  edades_corte <- c(60, 70, 80, 90)
+  
+  # A. Predicciones (Prevalencia Ajustada)
+  preds <- predictions(
+    modelo, 
+    newdata = datagrid(anio = c("2015", "2022"), 
+                       edad = edades_corte,
+                       educ = "Básica", 
+                       zona = "Urbano")
+  ) %>% as.data.frame()
+  
+  # B. Comparaciones (Diferencia: 2022 - 2015)
+  comps <- comparisons(
+    modelo, variables = "anio",
+    newdata = datagrid(edad = edades_corte, educ = "Básica", zona = "Urbano")
+  ) %>% as.data.frame()
+  
+  # C. Armado y Formateo
+  tabla_lista <- comps %>%
+    select(edad, estimate, conf.low, conf.high, p.value) %>%
+    mutate(
+      # Recuperamos las prevalencias absolutas
+      Prev_2015 = preds$estimate[preds$anio == "2015"] * 100,
+      Prev_2022 = preds$estimate[preds$anio == "2022"] * 100,
+      Dif_Abs   = estimate * 100,
+      
+      # Formato Texto para la tabla
+      `Edad`       = paste(edad, "años"),
+      `2015`       = sprintf("%.1f%%", Prev_2015),
+      `2022`       = sprintf("%.1f%%", Prev_2022),
+      `Diferencia` = sprintf("%.1f (%.1f, %.1f)", Dif_Abs, conf.low*100, conf.high*100),
+      `Valor p`    = style_pvalue(p.value, digits = 3)
+    ) %>%
+    select(`Edad`, `2015`, `2022`, `Diferencia`, `Valor p`)
+  
+  tabla_lista$Grupo <- titulo_grupo
+  return(tabla_lista)
+}
+
+# 3. GENERAR Y UNIR TABLA FINAL
+# -----------------------------------------------------------------------------
+res_lim_hombres <- generar_tabla_obj3(mod_lim_hombres, "Hombres")
+res_lim_mujeres <- generar_tabla_obj3(mod_lim_mujeres, "Mujeres")
+
+tabla3_limitacion <- bind_rows(res_lim_hombres, res_lim_mujeres) %>%
+  group_by(Grupo) %>%
+  gt() %>%
+  
+  # Títulos y Encabezados
+  tab_header(
+    title = md("**Tabla 3. Prevalencia de Limitación Funcional (2015 vs 2022)**"),
+    subtitle = md("Modelos ajustados por edad (cuadrática), educación y zona")
+  ) %>%
+  
+  # Estilos
+  cols_align(align = "center", columns = -Edad) %>%
+  tab_options(
+    row_group.font.weight = "bold",
+    row_group.background.color = "#f0f0f0",
+    table.font.size = "small"
+  ) %>%
+  
+  # Notas al pie
+  tab_source_note(md("*Nota:* Diferencia en Puntos Porcentuales. Valores negativos indican disminución.")) %>%
+  tab_source_note(md("**Fuente:** Elaboración propia en base a ENDISC 2015 y ENDIDE 2022."))
+
+# Mostrar
+tabla3_limitacion
+```
+
+```{r guardar-tabla3}
+# --- GUARDAR TABLA 2 ---
+# Si tu objeto se llama 'tabla2_sexo' (el que convertiste con as_gt en el paso anterior)
+here("output", "tables")
+
+# 2. Guardar la Tabla 1
+tabla3_limitacion %>%
+  gtsave(filename = here("output", "tables", "tabla3_prev_limit.docx"),
+         overwrite = TRUE
+         )
+```
 
 ### Visualización de cambios temporales
+```{r figura-obj3-limitacion}
+# 1. FUNCIÓN PARA PREDECIR LAS CURVAS (Marginal Effects)
+# -----------------------------------------------------------------------------
+preparar_curvas_lim <- function(modelo, nombre_grupo) {
+  
+  # Creamos una grilla de datos: Edades 60 a 95, fijando educación y zona
+  nuevos_datos <- datagrid(
+    model = modelo,
+    edad = seq(60, 95, by = 1), 
+    anio = c("2015", "2022"),
+    educ = "Básica", 
+    zona = "Urbano"
+  )
+  
+  # Calculamos las probabilidades predichas
+  predictions(modelo, newdata = nuevos_datos) %>%
+    as.data.frame() %>%
+    mutate(Grupo = nombre_grupo)
+}
 
+# 2. GENERAR DATOS PARA EL GRÁFICO
+# -----------------------------------------------------------------------------
+# Unimos las predicciones de hombres y mujeres
+datos_grafico_lim <- bind_rows(
+  preparar_curvas_lim(mod_lim_hombres, "HOMBRES"),
+  preparar_curvas_lim(mod_lim_mujeres, "MUJERES")
+)
+
+# 3. CREAR EL GRÁFICO (GGPLOT2)
+# -----------------------------------------------------------------------------
+grafico_obj3 <- ggplot(datos_grafico_lim, aes(x = edad, y = estimate, color = anio, fill = anio)) +
+  
+  # A. Bandas de confianza (El área sombreada)
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2, color = NA) +
+  
+  # B. Líneas de tendencia
+  geom_line(linewidth = 1.2) +
+  
+  # C. Separar por Sexo
+  facet_wrap(~ Grupo) +
+  
+  # D. Colores y Escalas (Paleta apta para daltónicos y B/N)
+  scale_color_manual(values = c("2015" = "#E69F00", "2022" = "#56B4E9")) +
+  scale_fill_manual(values = c("2015" = "#E69F00", "2022" = "#56B4E9")) +
+  
+  # Eje Y en porcentaje (0% a 100%)
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  
+  # E. Títulos y Etiquetas
+  labs(
+    title = "Dinámica de la Limitación Funcional en Chile (2015-2022)",
+    subtitle = "Probabilidad ajustada por edad, sexo, educación y zona",
+    y = "Probabilidad de Limitación",
+    x = "Edad (años)",
+    color = "Año",
+    fill = "Año",
+    caption = "Fuente: Elaboración propia en base a ENDISC 2015 y ENDIDE 2022"
+  ) +
+  
+  # F. Tema limpio para tesis
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",          # Leyenda abajo
+    plot.title = element_text(face = "bold", size = 14),
+    strip.text = element_text(face = "bold", size = 12), # Títulos de los recuadros (H/M)
+    axis.text = element_text(size = 10)
+  )
+
+# Mostrar gráfico
+print(grafico_obj3)
+#Las mujeres que entraron a la vejez en 2022 llegaron mucho más sanas (menos limitadas) que las que tenían esa edad en 2015. A pesar de llegar mejor a la vejez, al alcanzar los 80+ años, la carga de discapacidad se iguala. La "ventaja" de 2022 se pierde en la cuarta edad. A diferencia de las mujeres, los hombres "viejos-viejos" (80+) de 2022 están significativamente mejor que sus pares de 2015.
+```
+**Hipótesis:** Las mujeres que en condiciones normales habrían llegado a 2022 siendo funcionales (manteniendo la curva baja), perdieron su funcionalidad debido a la atrofia muscular por encierro, falta de kinesiología, depresión o aislamiento. Esas mujeres no desaparecieron (no murieron todas), sino que migraron del grupo "sano" al grupo "con limitación". Por eso la prevalencia sube y se empata con 2015. El 2022 no logró mantener la mejora histórica porque el entorno "enfermó" (discapacitó) a las sobrevivientes. **¿Por qué esto pareció afectar más a mujeres que hombres?** aquí no tendría mucho sentido la hipotesis del sesgo del sobreviviente para este fenómeno, no tiene sentido que sobrevivieron las que estan peor.
+
+```{r guardar-figura-obj3-limitacion}
+# PNG para presentaciones
+ggsave(
+  here("output", "figures", "limitacion_funcional.png"),
+  width = 10,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+# PDF para documentos (calidad vectorial)
+ggsave(
+  here("output", "figures", "limitacion_funcional.pdf"),
+  width = 10,
+  height = 6
+)
+
+# SVG si necesitas editarlo luego
+ggsave(
+  here("output", "figures", "limitacion_funcional.svg"),
+  width = 10,
+  height = 6
+)
+```
 
 ------------------------------------------------------------------------
 
 ## OBJETIVO 4: Asociación entre multimorbilidad y limitación funcional
 
-### Modelos de regresión logística por año
+### Ajuste y Comparación de Modelos (MM2 vs MM3)
+
+```{r modelo-logistico-obj4}
+# =============================================================================
+# 4.1. COMPARACIÓN REAL DE MODELOS (MM2 vs MM3)
+# =============================================================================
+
+# 1. Ajustamos los modelos (igual que antes)
+# --------------------------------------------------------
+mod_mm2 <- svyglm(
+  lim_num ~ anio * multi2_factor + edad + sexo + educ + zona, 
+  design = diseno_60mas, 
+  family = quasibinomial()
+)
+
+mod_mm3 <- svyglm(
+  lim_num ~ anio * multi3_factor + edad + sexo + educ + zona, 
+  design = diseno_60mas, 
+  family = quasibinomial()
+)
+
+# 2. Extracción correcta del AIC (solo el número final)
+# --------------------------------------------------------
+# La función AIC en survey devuelve un vector c(eff.p, AIC). 
+# Seleccionamos explícitamente el componente llamado "AIC" o el 2do valor.
+#El AIC (Akaike Information Criterion) es un puntaje matemático que mide qué tan bien se ajusta el modelo a la realidad, mientras MENOR sea el puntaje, MEJOR es el modelo.
+
+get_aic_value <- function(modelo) {
+  val <- AIC(modelo)
+  if(length(val) > 1) { return(as.numeric(val["AIC"])) } else { return(as.numeric(val)) }
+}
+
+aic_mm2_val <- get_aic_value(mod_mm2)
+aic_mm3_val <- get_aic_value(mod_mm3)
+
+# 3. Tabla Comparativa (Ahora sí tendrá solo 2 filas)
+# --------------------------------------------------------
+comparacion <- data.frame(
+  Modelo = c("Multimorbilidad Standard (>=2)", "Multimorbilidad Severa (>=3)"),
+  AIC_Real = c(aic_mm2_val, aic_mm3_val)
+) %>%
+  mutate(
+    Diferencia = AIC_Real - min(AIC_Real),
+    # El menor AIC es el mejor
+    Conclusion = ifelse(Diferencia == 0, "MEJOR AJUSTE (GANADOR)", "")
+  )
+
+print(comparacion)
+#"Se seleccionó el criterio de multimorbilidad severa (≥3) tras comprobar un mejor ajuste estadístico (AIC). Esto sugiere que, en la población chilena mayor, el umbral de dos enfermedades ha perdido capacidad discriminativa debido a su alta prevalencia, siendo la acumulación de tres o más patologías el verdadero detonante de la limitación funcional."
+```
 
 
-### Tabla comparativa de ORs
+### Análisis de Interacción: ¿Cambió el impacto de la multimorbilidad?: Interacción Año × Multimorbilidad
+No solo estoy viendo si hay más enfermos (como Landré), estoy viendo si la enfermedad es más agresiva/limitante ahora
 
-### Bondad de ajuste de modelos
+```{r tabla-obj4-mm3-interaccion }
+# Usamos el modelo ganador (mod_mm3)
+tabla_interaccion <- mod_mm3 %>%
+  tbl_regression(
+    exponentiate = TRUE,  # OR
+    
+    # AQUÍ definimos los decimales directamente para evitar el error
+    estimate_fun = function(x) style_number(x, digits = 2), 
+    pvalue_fun   = function(x) style_number(x, digits = 3),
+    
+    label = list(
+      anio ~ "Año (Ref: 2015)",
+      multi3_factor ~ "Multimorbilidad (≥3)",
+      sexo ~ "Sexo (Ref: Hombre)",
+      educ ~ "Nivel Educativo",
+      zona ~ "Zona (Ref: Urbano)",
+      `anio:multi3_factor` ~ "INTERACCIÓN: Año × Multimorbilidad"
+    )
+  ) %>%
+  
+  # Negrita para p < 0.05
+  bold_p(t = 0.05) %>%
+  
+  # Modificar encabezados
+  modify_header(
+    label = "**Variable**", 
+    estimate = "**OR Ajustado (IC 95%)**",
+    p.value = "**Valor p**"
+  ) %>%
+  
+  # Título de la tabla
+  modify_caption("**Tabla 4. Modelos de regresión logística ponderada para limitación funcional.**") %>%
+  
+  # --- CONVERSIÓN A GT (Punto crítico) ---
+  as_gt() %>%
+  
+  # Notas al pie (Funciones de gt)
+  tab_source_note(
+    source_note = md("Modelos ajustados por edad, sexo, educación y zona.")
+  )
 
+# Mostrar tabla
+tabla_interaccion
+#"Se observó una interacción estadísticamente significativa (OR=0.74;p=0.022). Esto indica que, aunque la prevalencia de enfermos aumentó, la fuerza de asociación entre tener multimorbilidad severa y sufrir limitación funcional disminuyó en 2022 comparado con 2015. Es decir, la multimorbilidad se volvió ligeramente menos discapacitante en el tiempo."
+#"Aunque la multimorbilidad estándar (≥2) es útil para screening temprano, nuestros modelos (criterio AIC) demostraron que la severidad (≥3) es el determinante crítico para la pérdida de funcionalidad. Desde una perspectiva de salud pública, este grupo representa el objetivo prioritario para la prevención terciaria (evitar la dependencia)." Si ocupo MM2 como criterio de riesgo, "marco" a casi toda la población. En Salud Pública, si todo es prioridad, nada es prioridad.
+#Quienes quedan en 2022 con multimorbilidad son, probablemente, personas con una constitución biológica más resistente o con combinaciones de enfermedades menos letales.Por eso el OR baja (0.74): La asociación parece más débil no porque la enfermedad sea "buena", sino porque los casos donde la asociación era más fuerte (enfermedad -> muerte rápida) desaparecieron de la muestra.
+```
 
-### Evaluación de interacción año × multimorbilidad
+### Visualización de Brechas: Probabilidad Predicha de Limitación.
 
+```{r grafico-obj4-interaccion}
+# 1. PREDICCIONES (Usando el modelo ganador mod_mm3)
+# -----------------------------------------------------------------------------
+pred_interaccion <- predictions(
+  mod_mm3,  
+  newdata = datagrid(
+    anio = c("2015", "2022"),
+    multi3_factor = c("Sin Multimorbilidad", "Con Multimorbilidad"), 
+    edad = 70,       
+    sexo = "Mujer",  
+    educ = "Básica", 
+    zona = "Urbano"
+  )
+) %>% as.data.frame()
 
+# 2. CREACIÓN DEL GRÁFICO (Asignado al objeto 'grafico_final')
+# -----------------------------------------------------------------------------
+# NOTA: Aquí está el cambio clave. Guardamos el gráfico en "grafico_final"
+grafico_final <- ggplot(pred_interaccion, aes(x = anio, y = estimate, color = multi3_factor, group = multi3_factor)) +
+  
+  # A. Líneas
+  geom_line(linewidth = 1.2) +
+  
+  # B. Barras de error
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.1, linewidth = 0.8) +
+  
+  # C. Puntos
+  geom_point(size = 4) +
+  
+  # D. Etiquetas de texto
+  geom_text(aes(label = sprintf("%.1f%%", estimate * 100)), 
+            vjust = -1.5, fontface = "bold", show.legend = FALSE) +
+  
+  # E. Colores
+  scale_color_manual(values = c("Sin Multimorbilidad" = "gray60", 
+                                "Con Multimorbilidad" = "#D55E00")) +
+  
+  # F. Escala Y
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), 
+                     limits = c(0, 0.7)) +
+  
+  # G. Títulos
+  labs(
+    title = "Multimorbilidad y Limitación Funcional (2015-2022)",
+    subtitle = "Probabilidad ajustada (Mujer, 70 años, Educ. Básica)",
+    y = "Probabilidad de Limitación",
+    x = "Año",
+    color = "Condición de Severidad (≥3)",
+    caption = "Fuente: Elaboración propia. Modelo seleccionado por criterio AIC."
+  ) +
+  
+  # H. Tema
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+print(grafico_final)
+#"La Figura X muestra las probabilidades predichas de limitación funcional ajustadas por covariables. Se observa una interacción disordinal en magnitud: mientras que la probabilidad de limitación en personas sin multimorbilidad se mantuvo estable entre 2015 y 2022 (25.3% vs 25.9%), en el grupo con multimorbilidad severa se registró una disminución significativa de la probabilidad, descendiendo del 64.7% en 2015 al 58.2% en 2022. Esto indica una reducción en la brecha de discapacidad asociada a la multimorbilidad en el periodo post-pandemia."
+```
 
-### Visualización de ORs por año
+```{r guardar-grafico-obj4-interaccion}
+# Segundo: Guardarlo en alta calidad (PNG)
+ggsave(
+  filename = "Grafico_Interaccion_MM3.png", 
+  plot = grafico_final, 
+  width = 10, 
+  height = 6, 
+  dpi = 300,    # Alta resolución
+  bg = "white"  # Fondo blanco
+)
+
+# Opcional: Si lo quieres en formato TIFF (para revistas estrictas)
+# ggsave("Grafico_Interaccion_MM3.tiff", plot = grafico_final, width = 10, height = 6, dpi = 300, compression = "lzw", bg = "white")
+```
 
 
 ------------------------------------------------------------------------
@@ -650,6 +1656,14 @@ tabla1_enf_es %>%
 # Discusión
 
 \[Interpretar resultados considerando:\]
+
+```{r}
+#*"El hallazgo de una interacción negativa (OR 0.74), que sugiere una atenuación del impacto discapacitante de la multimorbilidad en 2022, debe interpretarse con cautela bajo el contexto de la pandemia de COVID-19.
+
+#Es altamente probable que opere un 'Sesgo de Supervivencia Selectiva': la pandemia tuvo una alta letalidad precisamente en el subgrupo de personas mayores con multimorbilidad y limitación funcional severa. Por lo tanto, la cohorte observada en 2022 podría representar un grupo de 'sobrevivientes resilientes', donde la multimorbilidad está presente pero asociada a una menor fragilidad biológica que en la cohorte de 2015.
+
+#Alternativamente, esto podría reflejar una mejora real en el manejo integrado de crónicos (Estrategia de Cuidado Integral), pero el efecto demográfico de la pandemia es la hipótesis más plausible."*
+```
 
 1.  **Cambios en prevalencia:** ¿Aumentó, disminuyó o se mantuvo estable?
 2.  **Diferencias por edad y sexo:** ¿Qué grupos se vieron más afectados?
@@ -687,15 +1701,29 @@ sessionInfo()
 ```
 
 ## Anexo B: Verificación de diseños muestrales
-
 ```{r verificacion-disenos}
-cat("=== DISEÑO 2015 ===\n")
-cat("Estratos:", length(unique(diseno_2015$variables$estrato)), "\n")
-cat("PSUs:", length(unique(diseno_2015$variables$cod_upm)), "\n")
-cat("Grados de libertad:", degf(diseno_2015), "\n\n")
+# 1. Creamos los sub-diseños temporales extrayéndolos de tu objeto maestro
+# (Esto soluciona el error "object not found")
+sub_2015 <- subset(diseno_60mas, anio == "2015")
+sub_2022 <- subset(diseno_60mas, anio == "2022")
 
-cat("=== DISEÑO 2022 ===\n")
-cat("Estratos:", length(unique(diseno_2022$variables$estrato)), "\n")
-cat("PSUs:", length(unique(diseno_2022$variables$cod_upm)), "\n")
-cat("Grados de libertad:", degf(diseno_2022), "\n")
+# 2. Imprimir diagnóstico para 2015
+cat("=== DISEÑO 2015 (Submuestra 60+) ===\n")
+cat("Estratos:", length(unique(sub_2015$variables$estrato)), "\n")
+cat("Conglomerados (PSU):", length(unique(sub_2015$variables$cod_upm)), "\n")
+# Grados de Libertad = (N Conglomerados - N Estratos)
+# Es vital que este número sea > 0 para que los cálculos de error funcionen
+cat("Grados de libertad:", degf(sub_2015), "\n\n")
+
+# 3. Imprimir diagnóstico para 2022
+cat("=== DISEÑO 2022 (Submuestra 60+) ===\n")
+cat("Estratos:", length(unique(sub_2022$variables$estrato)), "\n")
+cat("Conglomerados (PSU):", length(unique(sub_2022$variables$cod_upm)), "\n")
+cat("Grados de libertad:", degf(sub_2022), "\n\n")
+
+# 4. Diagnóstico del Diseño Combinado (El que usas en los modelos)
+cat("=== DISEÑO COMBINADO (POOLED) ===\n")
+cat("Total Estratos:", length(unique(diseno_60mas$variables$estrato)), "\n")
+cat("Total PSUs:", length(unique(diseno_60mas$variables$cod_upm)), "\n")
+cat("Grados de libertad totales:", degf(diseno_60mas), "\n")
 ```
